@@ -1,0 +1,135 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x2b (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40378167
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x548
+load:0x403c8700,len:0xc3c
+load:0x403cb700,len:0x2e70
+entry 0x403c8908
+I (35) octal_psram: vendor id    : 0x0d (AP)
+I (35) octal_psram: dev id       : 0x02 (generation 3)
+I (36) octal_psram: density      : 0x03 (64 Mbit)
+I (37) octal_psram: good-die     : 0x01 (Pass)
+I (41) octal_psram: Latency      : 0x01 (Fixed)
+I (46) octal_psram: VCC          : 0x01 (3V)
+I (50) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (55) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (59) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (64) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (69) octal_psram: DriveStrength: 0x00 (1/1)
+I (74) MSPI Timing: PSRAM timing tuning index: 5
+I (77) esp_psram: Found 8MB PSRAM device
+I (81) esp_psram: Speed: 80MHz
+I (84) cpu_start: Multicore app
+I (98) cpu_start: Pro cpu start user code
+I (98) cpu_start: cpu freq: 240000000 Hz
+I (99) app_init: Application information:
+I (99) app_init: Project name:     xiaozhi
+I (102) app_init: App version:      2.1.0
+I (106) app_init: Compile time:     Jan 26 2026 09:30:05
+I (111) app_init: ELF file SHA256:  0ad36ae41...
+I (115) app_init: ESP-IDF:          HEAD-HASH-NOTFOUND
+I (120) efuse_init: Min chip rev:     v0.0
+I (124) efuse_init: Max chip rev:     v0.99 
+I (128) efuse_init: Chip rev:         v0.2
+I (132) heap_init: Initializing. RAM available for dynamic allocation:
+I (138) heap_init: At 3FCB1BB8 len 00037B58 (222 KiB): RAM
+I (143) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (148) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (153) heap_init: At 600FE060 len 00001F78 (7 KiB): RTCRAM
+I (159) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (166) spi_flash: detected chip: generic
+I (169) spi_flash: flash io: qio
+I (172) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (178) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (185) main_task: Started on CPU0
+I (195) esp_psram: Reserving pool of 64K of internal memory for DMA/internal allocations
+I (195) main_task: Calling app_main()
+I (205) Board: UUID=<redacted: uuid> SKU=sp-esp32-s3-1.28-box
+I (205) button: IoT Button Version: 4.1.5
+I (215) Spotpear_ESP32_S3_1_28_BOX: Init Cst816D
+I (265) Spotpear_ESP32_S3_1_28_BOX: Get chip ID: 0x00
+W (265) i2c.master: Please check pull-up resistances whether be connected properly. Otherwise unexpected behavior would happen. For more detailed information, please read docs
+I (265) Spotpear_ESP32_S3_1_28_BOX: Initialize SPI bus
+I (275) Spotpear_ESP32_S3_1_28_BOX: Init GC9A01 display
+I (275) Spotpear_ESP32_S3_1_28_BOX: Install panel IO
+I (285) Spotpear_ESP32_S3_1_28_BOX: Install GC9A01 panel driver
+I (285) gc9a01: LCD panel create success, version: 2.0.1
+I (415) Display: Power management not supported
+I (465) LcdDisplay: Turning display on
+I (465) LcdDisplay: Initialize LVGL library
+I (465) LcdDisplay: Use 2MB of PSRAM for image cache
+I (465) LcdDisplay: Initialize LVGL port
+I (465) LcdDisplay: Adding LCD display
+I (465) LVGL: Starting LVGL task
+I (525) Backlight: Set brightness to 75
+I (525) PowerSaveTimer: Power save timer enabled
+I (525) StateMachine: State: unknown -> starting
+I (525) Es8311AudioCodec: Duplex channels created
+I (535) ES8311: Work in Slave mode
+I (535) Es8311AudioCodec: Es8311AudioCodec initialized
+I (535) AudioCodec: Set input enable to true
+I (535) I2S_IF: channel mode 0 bits:16/16 channel:2 mask:1
+I (545) I2S_IF: STD Mode 1 bits:16/16 channel:2 sample_rate:24000 mask:1
+I (555) I2S_IF: channel mode 0 bits:16/16 channel:2 mask:1
+I (555) I2S_IF: STD Mode 0 bits:16/16 channel:2 sample_rate:24000 mask:1
+I (575) Adev_Codec: Open codec device OK
+I (575) AudioCodec: Set output enable to true
+I (575) AudioCodec: Audio codec started
+I (575) OpusResampler: Resampler configured with input sample rate 24000 and output sample rate 16000
+I (585) OpusResampler: Resampler configured with input sample rate 24000 and output sample rate 16000
+I (595) MCP: Add tool: self.get_device_status
+I (605) MCP: Add tool: self.audio_speaker.set_volume
+I (605) MCP: Add tool: self.screen.set_brightness
+I (605) MCP: Add tool: self.screen.set_theme
+I (615) MCP: Add tool: self.get_system_info [user]
+I (615) MCP: Add tool: self.reboot [user]
+I (625) MCP: Add tool: self.upgrade_firmware [user]
+I (625) PowerSaveTimer: Power save timer disabled
+I (635) MCP: Add tool: self.screen.get_info [user]
+I (635) MCP: Add tool: self.screen.snapshot [user]
+I (635) MCP: Add tool: self.screen.preview_image [user]
+I (645) Assets: The storage free size is 21888 KB
+I (645) Assets: The partition size is 8192 KB
+I (735) Assets: The checksum calculation time is 81 ms
+I (735) MCP: Add tool: self.assets.set_download_url [user]
+I (735) WifiManager: Initializing...
+I (735) pp: pp rom version: e7ae62f
+I (735) net80211: net80211 rom version: e7ae62f
+I (755) wifi:wifi driver task: 3fcdc014, prio:23, stack:6144, core=0
+I (755) wifi:wifi firmware version: 14da9b7
+I (755) wifi:wifi certification version: v7.0
+I (755) wifi:config NVS flash: disabled
+I (765) wifi:config nano formatting: enabled
+I (765) wifi:Init data frame dynamic rx buffer num: 6
+I (775) wifi:Init dynamic rx mgmt buffer num: 5
+I (775) wifi:Init management short buffer num: 32
+I (775) wifi:Init dynamic tx buffer num: 32
+I (785) wifi:Init static tx FG buffer num: 2
+I (785) wifi:Init static rx buffer size: 1600
+I (795) wifi:Init static rx buffer num: 3
+I (795) wifi:Init dynamic rx buffer num: 6
+I (795) wifi_init: rx ba win: 3
+I (805) wifi_init: accept mbox: 6
+I (805) wifi_init: tcpip mbox: 16
+I (805) wifi_init: udp mbox: 6
+I (815) wifi_init: tcp mbox: 6
+I (815) wifi_init: tcp tx win: 5760
+I (815) wifi_init: tcp rx win: 5760
+I (815) wifi_init: tcp mss: 1440
+I (825) WifiManager: Initialized
+I (825) WifiBoard: Starting WiFi connection attempt
+I (835) WifiManager: Starting station
+I (835) phy_init: phy_version 701,f4f1da3a,Mar  3 2025,15:50:10
+I (865) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+I (885) wifi:mode : sta (ac:a7:04:22:9d:70)
+I (885) wifi:enable tsf
+I (885) WifiBoard: WiFi scanning
+I (3285) WifiStation: No AP found, next scan in 10 seconds
+I (10595) SystemInfo: free sram: 149531 minimal sram: 147475
+I (15595) AudioCodec: Set input enable to false
+I (15595) AudioCodec: Set output enable to false
+I (15695) WifiStation: No AP found, next scan in 20 seconds
+I (20595) SystemInfo: free sram: 149403 minimal sram: 147431

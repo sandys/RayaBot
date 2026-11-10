@@ -1,0 +1,18 @@
+# config/lang-en-us.sdkconfig — sdkconfig lines for an English build of the stock firmware.
+#
+# Use:
+#   scripts/11-build-firmware.sh --label lang-en-us --sdkconfig-append config/lang-en-us.sdkconfig
+#
+# File format (what ESP-IDF calls a "sdkconfig defaults" fragment)
+#   CONFIG_NAME=VALUE            one per line; strings keep their double quotes
+#   # CONFIG_NAME is not set     switches a bool off (CONFIG_NAME=n means the same)
+#   # anything else, blank lines are ignored
+# The lines are applied on top of the stock configuration. The build fails if one of them
+# is not in the sdkconfig it generated (unknown symbol or unmet dependency), so a typo here
+# cannot silently produce a stock image.
+#
+# "Default Language" is a Kconfig choice in firmware/xiaozhi-esp32/main/Kconfig.projbuild.
+# Selecting one member deselects the stock default (CONFIG_LANGUAGE_ZH_CN). It switches the
+# on-screen texts and the built-in voice prompts to main/assets/locales/en-US.
+# The wake word is a separate option and stays the stock one.
+CONFIG_LANGUAGE_EN_US=y

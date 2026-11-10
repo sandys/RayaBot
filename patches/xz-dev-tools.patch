@@ -1,0 +1,469 @@
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 633ef85..5935a5c 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -41,6 +41,7 @@ set(SOURCES "audio/audio_codec.cc"
+             "device_state_machine.cc"
+             "assets.cc"
+             "main.cc"
++            "xz_dev.cc"
+             )
+ 
+ set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 6a7c0fb..1024ff7 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -1172,4 +1172,60 @@ menu "TAIJIPAI_S3_CONFIG"
+         启动双声道
+ endmenu
+ 
++menu "Local development tools (xz)"
++
++config XZ_DEV_SERIAL_SCREENSHOT
++    bool "Dump screenshots of the LVGL screen on the serial console"
++    depends on LV_USE_SNAPSHOT
++    default n
++    help
++        Periodically JPEG-encode the active LVGL screen and print it, base64
++        encoded, on the console between "XZSHOT BEGIN" and "XZSHOT END" markers.
++        Lets a headless test rig see what the display shows. Output only; see
++        main/xz_dev.cc. Not for production builds.
++
++config XZ_DEV_SCREENSHOT_FIRST_MS
++    int "Delay before the first screenshot (ms)"
++    depends on XZ_DEV_SERIAL_SCREENSHOT
++    default 6000
++
++config XZ_DEV_SCREENSHOT_PERIOD_MS
++    int "Interval between screenshots (ms)"
++    depends on XZ_DEV_SERIAL_SCREENSHOT
++    default 15000
++
++config XZ_DEV_SCREENSHOT_COUNT
++    int "Number of screenshots after boot (0 = keep going forever)"
++    depends on XZ_DEV_SERIAL_SCREENSHOT
++    default 8
++
++config XZ_DEV_SCREENSHOT_QUALITY
++    int "JPEG quality of the screenshots (1-100)"
++    depends on XZ_DEV_SERIAL_SCREENSHOT
++    range 1 100
++    default 90
++
++config XZ_DEV_FACE_DEMO
++    bool "Show the emoji faces while the device is offline (demo)"
++    depends on !USE_EMOTE_MESSAGE_STYLE
++    default n
++    help
++        Stock firmware shows its PNG emoji faces only after it is online.
++        This loads them from the assets partition right after boot and,
++        while the device is starting or in WiFi configuration mode, shows
++        one face after another. Stops touching the screen once online.
++        Prints "XZFACE show=<name>" per face. See main/xz_dev.cc.
++
++config XZ_DEV_FACE_DEMO_FIRST_MS
++    int "Delay before the first face (ms)"
++    depends on XZ_DEV_FACE_DEMO
++    default 2000
++
++config XZ_DEV_FACE_DEMO_PERIOD_MS
++    int "Time each face stays on screen (ms)"
++    depends on XZ_DEV_FACE_DEMO
++    default 5000
++
++endmenu
++
+ endmenu
+diff --git a/main/main.cc b/main/main.cc
+index f7e8bc3..adf9e80 100755
+--- a/main/main.cc
++++ b/main/main.cc
+@@ -9,6 +9,9 @@
+ 
+ #include "application.h"
+ 
++// Local development helpers (xz_dev.cc). Does nothing unless a CONFIG_XZ_DEV_* option is set.
++void XzDevStart();
++
+ #define TAG "main"
+ 
+ extern "C" void app_main(void)
+@@ -25,5 +28,6 @@ extern "C" void app_main(void)
+     // Initialize and run the application
+     auto& app = Application::GetInstance();
+     app.Initialize();
++    XzDevStart();
+     app.Run();  // This function runs the main event loop and never returns
+ }
+diff --git a/main/xz_dev.cc b/main/xz_dev.cc
+new file mode 100644
+index 0000000..a2df7ec
+--- /dev/null
++++ b/main/xz_dev.cc
+@@ -0,0 +1,365 @@
++// xz_dev.cc - local development helpers. NOT part of upstream xiaozhi-esp32.
++//
++// Added by patches/xz-dev-tools.patch of the surrounding project and compiled into
++// every build, but everything here is inert unless a CONFIG_XZ_DEV_* option is set
++// (menu "Xiaozhi Assistant" -> "Local development tools (xz)").
++//
++// CONFIG_XZ_DEV_SERIAL_SCREENSHOT
++//   A low-priority task snapshots the active LVGL screen, JPEG-encodes it with the
++//   firmware's own Display::SnapshotToJpeg() and prints it on the console:
++//
++//       XZSHOT BEGIN id=1 fmt=jpeg w=240 h=240 bytes=5321 uptime_ms=6012 state=1 encode_ms=41 face=happy
++//       XZSHOT D 1 0 <96 base64 characters>
++//       XZSHOT D 1 1 ...
++//       XZSHOT END id=1 crc32=1a2b3c4d lines=74
++//
++//   Each line is one printf, so output of other tasks can fall between lines but never
++//   inside one; the id and sequence number let the host drop foreign lines and notice a
++//   missing one, and the CRC-32 (zlib polynomial) proves the image arrived intact.
++//   "face=" names the emoji the face demo (below) last put on screen, or "-".
++//
++//   Colours: the stock LvglDisplay::SnapshotToJpeg() byte-swaps LVGL's RGB565 buffer and then
++//   passes it to the encoder as V4L2_PIX_FMT_RGB565, which image_to_jpeg maps to RGB565
++//   *little*-endian (main/display/lvgl_display/jpg/image_to_jpeg.cpp:137-138). On ESP32-S3
++//   (software encoder) that scrambles every colour except black and white - the yellow emoji
++//   come out cyan. The dump therefore takes its own snapshot without the swap ("colours=true"
++//   in the BEGIN line). The screen itself is not affected: this is the screenshot path only.
++//   Host side: scripts/27-screenshot.sh + scripts/py/extract_screenshots.py.
++//
++//   Output only - nothing is read from the console - so it works with the default
++//   console setup and cannot block the application when no host is listening.
++//
++// CONFIG_XZ_DEV_FACE_DEMO
++//   Stock firmware shows its emoji faces only once it is online: the PNG faces live in
++//   the "assets" flash partition, and Application::CheckAssetsVersion() loads them after
++//   the network connects. Without WiFi the screen shows a robot icon, then a gear.
++//   This demo builds its OWN emoji collection from the assets partition right after boot
++//   and, while the device is in the Starting or WifiConfiguring state (i.e. offline),
++//   shows one face after another. It prints one line per face:
++//
++//       XZFACE show=happy index=2 of=21 source=assets state=1 uptime_ms=7012
++//
++//   Safety: the collection is held by a static shared_ptr for the life of the firmware
++//   and is installed only on the themes' emoji slots - fonts, wake-word models and the
++//   rest of Assets::Apply() are untouched. If the network comes up later, the stock flow
++//   runs Assets::Apply() as usual and replaces the theme slots with its own collection;
++//   ours stays alive, so an image still referenced by the screen can never dangle.
++//   Once the device leaves the offline states the demo stops changing the screen.
++
++#include "sdkconfig.h"
++
++#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT || CONFIG_XZ_DEV_FACE_DEMO
++
++#include <algorithm>
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <memory>
++#include <string>
++#include <vector>
++
++#include <esp_log.h>
++#include <esp_timer.h>
++#include <freertos/FreeRTOS.h>
++#include <freertos/task.h>
++
++#include "application.h"
++#include "board.h"
++#include "display.h"
++
++#define TAG "xz_dev"
++
++namespace {
++
++// Name of the face the demo last put on screen; read by the screenshot task. Written once
++// per face from the main task, read rarely: a plain atomic pointer to an immortal string.
++std::atomic<const char*> g_shown_face{"-"};
++
++}  // namespace
++
++#endif
++
++// ---------------------------------------------------------------------------------------------
++#if CONFIG_XZ_DEV_FACE_DEMO && !CONFIG_USE_EMOTE_MESSAGE_STYLE
++
++#include <cJSON.h>
++
++#include "assets.h"
++#include "emoji_collection.h"
++#include "lvgl_image.h"
++#include "lvgl_theme.h"
++
++namespace {
++
++// Faces in the order they are shown; "neutral" first because it is the stock idle face.
++// Names not present in the assets are skipped; extra names found in the assets are appended.
++const char* const kPreferredOrder[] = {
++    "neutral", "happy",    "laughing",  "funny",  "loving",    "winking",  "cool",
++    "relaxed", "kissy",    "delicious", "silly",  "surprised", "shocked",  "thinking",
++    "confused", "embarrassed", "sad",   "crying", "angry",     "confident", "sleepy",
++};
++
++// Kept alive for the life of the firmware (see the safety note at the top of the file).
++std::shared_ptr<EmojiCollection> g_face_collection;
++std::vector<std::string> g_face_names;  // immutable once the demo task has started showing faces
++
++// Read index.json of the assets partition and build an emoji collection from its PNGs.
++// Returns the number of faces loaded.
++int LoadFacesFromAssets() {
++    auto& assets = Assets::GetInstance();
++    if (!assets.partition_valid()) {
++        printf("XZFACE assets partition not valid - falling back to the built-in emoji font\n");
++        return 0;
++    }
++    void* ptr = nullptr;
++    size_t size = 0;
++    if (!assets.GetAssetData("index.json", ptr, size)) {
++        printf("XZFACE index.json not found in assets\n");
++        return 0;
++    }
++    cJSON* root = cJSON_ParseWithLength(static_cast<const char*>(ptr), size);
++    if (root == nullptr) {
++        printf("XZFACE index.json is not valid JSON\n");
++        return 0;
++    }
++    auto collection = std::make_shared<EmojiCollection>();
++    std::vector<std::string> found;
++    cJSON* list = cJSON_GetObjectItem(root, "emoji_collection");
++    int n = cJSON_IsArray(list) ? cJSON_GetArraySize(list) : 0;
++    for (int i = 0; i < n; i++) {
++        cJSON* item = cJSON_GetArrayItem(list, i);
++        cJSON* name = cJSON_GetObjectItem(item, "name");
++        cJSON* file = cJSON_GetObjectItem(item, "file");
++        if (!cJSON_IsString(name) || !cJSON_IsString(file) || cJSON_GetObjectItem(item, "eaf") != nullptr) {
++            continue;
++        }
++        void* img = nullptr;
++        size_t img_size = 0;
++        if (!assets.GetAssetData(file->valuestring, img, img_size)) {
++            printf("XZFACE missing image %s for %s\n", file->valuestring, name->valuestring);
++            continue;
++        }
++        collection->AddEmoji(name->valuestring, new LvglRawImage(img, img_size));
++        found.emplace_back(name->valuestring);
++    }
++    cJSON_Delete(root);
++    if (found.empty()) {
++        printf("XZFACE assets contain no emoji_collection\n");
++        return 0;
++    }
++    // Preferred order first, then anything else the assets provide.
++    for (const char* want : kPreferredOrder) {
++        auto it = std::find(found.begin(), found.end(), want);
++        if (it != found.end()) {
++            g_face_names.push_back(*it);
++            found.erase(it);
++        }
++    }
++    for (auto& rest : found) {
++        g_face_names.push_back(rest);
++    }
++    g_face_collection = collection;
++    return static_cast<int>(g_face_names.size());
++}
++
++bool IsOffline(DeviceState s) { return s == kDeviceStateStarting || s == kDeviceStateWifiConfiguring; }
++
++void FaceDemoTask(void*) {
++    // Absolute schedule (xTaskDelayUntil): faces change exactly every period, so a screenshot
++    // schedule with the same period keeps a fixed phase to the face changes.
++    TickType_t wake = xTaskGetTickCount();
++    xTaskDelayUntil(&wake, pdMS_TO_TICKS(CONFIG_XZ_DEV_FACE_DEMO_FIRST_MS));
++
++    const char* source = "assets";
++    if (LoadFacesFromAssets() == 0) {
++        // Built-in Noto emoji font (30 px) knows these names too: still a face, just smaller.
++        source = "builtin-font";
++        for (const char* name : kPreferredOrder) {
++            g_face_names.emplace_back(name);
++        }
++    }
++    printf("XZFACE loaded %u faces from %s, one every %d ms while offline\n",
++           static_cast<unsigned>(g_face_names.size()), source, CONFIG_XZ_DEV_FACE_DEMO_PERIOD_MS);
++
++    auto& app = Application::GetInstance();
++    if (g_face_collection) {
++        // Install on the themes from the main task, where the UI is normally mutated.
++        app.Schedule([]() {
++            auto& themes = LvglThemeManager::GetInstance();
++            for (const char* theme_name : {"light", "dark"}) {
++                if (auto* theme = themes.GetTheme(theme_name)) {
++                    theme->set_emoji_collection(g_face_collection);
++                }
++            }
++        });
++    }
++
++    size_t index = 0;
++    bool active = true;
++    while (true) {
++        DeviceState state = app.GetDeviceState();
++        if (IsOffline(state)) {
++            if (!active) {
++                printf("XZFACE resumed state=%d\n", static_cast<int>(state));
++                active = true;
++            }
++            const std::string& face = g_face_names[index % g_face_names.size()];
++            const char* face_ptr = face.c_str();  // g_face_names never changes from here on
++            app.Schedule([face_ptr]() {
++                // Re-check on the main task: never override the UI of an online device.
++                if (IsOffline(Application::GetInstance().GetDeviceState())) {
++                    Board::GetInstance().GetDisplay()->SetEmotion(face_ptr);
++                    g_shown_face.store(face_ptr);
++                }
++            });
++            printf("XZFACE show=%s index=%u of=%u source=%s state=%d uptime_ms=%lld\n", face_ptr,
++                   static_cast<unsigned>(index % g_face_names.size()) + 1,
++                   static_cast<unsigned>(g_face_names.size()), source, static_cast<int>(state),
++                   static_cast<long long>(esp_timer_get_time() / 1000));
++            index++;
++        } else if (active) {
++            printf("XZFACE paused: device is online (state=%d), stock UI owns the screen\n",
++                   static_cast<int>(state));
++            g_shown_face.store("-");
++            active = false;
++        }
++        xTaskDelayUntil(&wake, pdMS_TO_TICKS(CONFIG_XZ_DEV_FACE_DEMO_PERIOD_MS));
++    }
++}
++
++}  // namespace
++
++#endif  // CONFIG_XZ_DEV_FACE_DEMO
++
++// ---------------------------------------------------------------------------------------------
++#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT
++
++#ifndef XZ_DEV_HOST_TEST
++#include <lvgl.h>
++
++#include "jpg/image_to_jpeg.h"
++#endif
++
++namespace {
++
++// Active LVGL screen -> JPEG, with correct colours (see the note at the top of the file).
++bool SnapshotJpegTrueColours(Display* display, std::string& jpeg, int quality) {
++#ifdef XZ_DEV_HOST_TEST
++    return display->SnapshotToJpeg(jpeg, quality);  // host test: the fake display hands out payloads
++#else
++    DisplayLockGuard lock(display);
++    lv_draw_buf_t* buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
++    if (buf == nullptr) {
++        return false;
++    }
++    jpeg.clear();
++    bool ok = image_to_jpeg_cb(
++        static_cast<uint8_t*>(buf->data), buf->data_size, buf->header.w, buf->header.h, V4L2_PIX_FMT_RGB565,
++        static_cast<uint8_t>(quality),
++        [](void* arg, size_t, const void* data, size_t len) -> size_t {
++            if (data != nullptr && len > 0) {
++                static_cast<std::string*>(arg)->append(static_cast<const char*>(data), len);
++            }
++            return len;
++        },
++        &jpeg);
++    lv_draw_buf_destroy(buf);
++    return ok;
++#endif
++}
++
++const char kBase64Alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++
++// Standard CRC-32 (reflected, polynomial 0xEDB88320) - what zlib.crc32() computes.
++uint32_t Crc32(const uint8_t* data, size_t len) {
++    uint32_t crc = 0xFFFFFFFFu;
++    for (size_t i = 0; i < len; i++) {
++        crc ^= data[i];
++        for (int bit = 0; bit < 8; bit++) {
++            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
++        }
++    }
++    return ~crc;
++}
++
++// 72 input bytes per line -> 96 base64 characters, no padding except on the last line.
++int DumpBase64Lines(int id, const uint8_t* data, size_t len) {
++    const size_t kBytesPerLine = 72;
++    char line[100];
++    int seq = 0;
++    for (size_t off = 0; off < len; off += kBytesPerLine, seq++) {
++        size_t n = std::min(kBytesPerLine, len - off);
++        const uint8_t* p = data + off;
++        size_t o = 0;
++        for (size_t i = 0; i < n; i += 3) {
++            uint32_t v = static_cast<uint32_t>(p[i]) << 16;
++            if (i + 1 < n) {
++                v |= static_cast<uint32_t>(p[i + 1]) << 8;
++            }
++            if (i + 2 < n) {
++                v |= p[i + 2];
++            }
++            line[o++] = kBase64Alphabet[(v >> 18) & 63];
++            line[o++] = kBase64Alphabet[(v >> 12) & 63];
++            line[o++] = (i + 1 < n) ? kBase64Alphabet[(v >> 6) & 63] : '=';
++            line[o++] = (i + 2 < n) ? kBase64Alphabet[v & 63] : '=';
++        }
++        line[o] = '\0';
++        printf("XZSHOT D %d %d %s\n", id, seq, line);
++        // Yield now and then so a long dump never starves the idle task / watchdog.
++        if ((seq & 15) == 15) {
++            vTaskDelay(1);
++        }
++    }
++    return seq;
++}
++
++void ScreenshotTask(void*) {
++    // Absolute schedule: the time spent encoding and printing does not push later shots back.
++    TickType_t wake = xTaskGetTickCount();
++    xTaskDelayUntil(&wake, pdMS_TO_TICKS(CONFIG_XZ_DEV_SCREENSHOT_FIRST_MS));
++    for (int id = 1; CONFIG_XZ_DEV_SCREENSHOT_COUNT == 0 || id <= CONFIG_XZ_DEV_SCREENSHOT_COUNT; id++) {
++        Display* display = Board::GetInstance().GetDisplay();
++        std::string jpeg;
++        const char* face = g_shown_face.load();
++        int64_t t0 = esp_timer_get_time();
++        bool ok = display != nullptr && SnapshotJpegTrueColours(display, jpeg, CONFIG_XZ_DEV_SCREENSHOT_QUALITY);
++        int64_t t1 = esp_timer_get_time();
++        if (!ok || jpeg.empty()) {
++            printf("XZSHOT FAIL id=%d reason=%s uptime_ms=%lld\n", id, display ? "snapshot" : "no-display",
++                   static_cast<long long>(t1 / 1000));
++        } else {
++            const auto* bytes = reinterpret_cast<const uint8_t*>(jpeg.data());
++            printf("XZSHOT BEGIN id=%d fmt=jpeg w=%d h=%d bytes=%u uptime_ms=%lld state=%d encode_ms=%lld colours=true face=%s\n",
++                   id, display->width(), display->height(), static_cast<unsigned>(jpeg.size()),
++                   static_cast<long long>(t0 / 1000), static_cast<int>(Application::GetInstance().GetDeviceState()),
++                   static_cast<long long>((t1 - t0) / 1000), face);
++            int lines = DumpBase64Lines(id, bytes, jpeg.size());
++            printf("XZSHOT END id=%d crc32=%08lx lines=%d\n", id,
++                   static_cast<unsigned long>(Crc32(bytes, jpeg.size())), lines);
++            fflush(stdout);
++        }
++        xTaskDelayUntil(&wake, pdMS_TO_TICKS(CONFIG_XZ_DEV_SCREENSHOT_PERIOD_MS));
++    }
++    ESP_LOGI(TAG, "screenshot task finished");
++    vTaskDelete(nullptr);
++}
++
++}  // namespace
++
++#endif  // CONFIG_XZ_DEV_SERIAL_SCREENSHOT
++
++// ---------------------------------------------------------------------------------------------
++void XzDevStart() {
++#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT
++    ESP_LOGI(TAG, "serial screenshots enabled: first after %d ms, then every %d ms, count %d (0 = forever)",
++             CONFIG_XZ_DEV_SCREENSHOT_FIRST_MS, CONFIG_XZ_DEV_SCREENSHOT_PERIOD_MS, CONFIG_XZ_DEV_SCREENSHOT_COUNT);
++    // Lowest application priority: it must never get in the way of audio or UI.
++    xTaskCreate(ScreenshotTask, "xz_dev_shot", 16384, nullptr, 1, nullptr);
++#endif
++#if CONFIG_XZ_DEV_FACE_DEMO && !CONFIG_USE_EMOTE_MESSAGE_STYLE
++    ESP_LOGI(TAG, "face demo enabled: first after %d ms, then every %d ms while offline",
++             CONFIG_XZ_DEV_FACE_DEMO_FIRST_MS, CONFIG_XZ_DEV_FACE_DEMO_PERIOD_MS);
++    xTaskCreate(FaceDemoTask, "xz_dev_face", 8192, nullptr, 1, nullptr);
++#endif
++}

@@ -1,0 +1,31 @@
+# config/dev-face-demo.sdkconfig — the "face demo" development build.
+#
+# Use (the dev patch must be applied first):
+#   scripts/19-patches.sh apply
+#   scripts/11-build-firmware.sh --label dev-face-v2.5.2 \
+#       --sdkconfig-append config/lang-en-us.sdkconfig \
+#       --sdkconfig-append config/dev-face-demo.sdkconfig
+#
+# What it is for
+#   Proving, with no WiFi and nobody looking at the device, that our own build drives the
+#   LCD and draws the xiaozhi emoji faces. Options come from patches/xz-dev-tools.patch
+#   (main/xz_dev.cc, menu "Xiaozhi Assistant -> Local development tools (xz)").
+#
+# Timeline after boot (both schedules are absolute, so they keep their phase):
+#   faces:        first at +2.0 s, then a new face every 5 s while offline
+#   screenshots:  first at +4.5 s, then every 5 s, 8 in total (+4.5 … +39.5 s)
+#   => each screenshot lands 2.5 s after a face change, and all 8 are done before the
+#      firmware's 60 s WiFi timeout switches to configuration mode (which plays a voice prompt).
+#   scripts/27-screenshot.sh --reset run --count 8 collects them.
+
+# Dump the LVGL screen as JPEG over the serial console.
+CONFIG_XZ_DEV_SERIAL_SCREENSHOT=y
+CONFIG_XZ_DEV_SCREENSHOT_FIRST_MS=4500
+CONFIG_XZ_DEV_SCREENSHOT_PERIOD_MS=5000
+CONFIG_XZ_DEV_SCREENSHOT_COUNT=8
+CONFIG_XZ_DEV_SCREENSHOT_QUALITY=90
+
+# Show the assets' emoji faces while offline.
+CONFIG_XZ_DEV_FACE_DEMO=y
+CONFIG_XZ_DEV_FACE_DEMO_FIRST_MS=2000
+CONFIG_XZ_DEV_FACE_DEMO_PERIOD_MS=5000

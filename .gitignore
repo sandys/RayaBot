@@ -1,0 +1,29 @@
+# What stays out of git, and why. Everything else in this repo is committed.
+# scripts/90-check-secrets.sh runs as the pre-commit hook and blocks secrets that slip past this.
+
+# SECRETS: full flash dumps. Their NVS partition holds the WiFi password, the xiaozhi server's
+# MQTT/websocket credentials and the board UUID. Never commit, copy or upload them.
+/backups/
+
+# Large or re-creatable. Each one has a script that rebuilds it.
+# upstream firmware checkout (scripts/10-fetch-firmware-source.sh); our changes live in patches/
+/firmware/
+# build artifacts (scripts/11-build-firmware.sh)
+/out/
+# docker ccache, component-manager downloads, test scratch (scripts/11, 17, 33)
+/cache/
+# official prebuilt downloads (scripts/31-fetch-prebuilt-firmware.sh)
+/prebuilt/
+# Windows esptool.exe (scripts/20-setup-esptool.sh)
+/tools/
+
+# Per-machine state and per-run output.
+# COM port, esptool path, image record, port lock (written by scripts 03, 13, 14, 20, 2x)
+/state/
+# one log per script run; evidence worth keeping is copied to docs/evidence/
+/logs/
+
+# Local tool settings and Python caches
+/.claude/settings.local.json
+__pycache__/
+*.pyc

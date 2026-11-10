@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Refuses a commit that would put device secrets into git history.
+# Activated by: scripts/90-check-secrets.sh --install-hook   (git config core.hooksPath .githooks)
+exec "$(git rev-parse --show-toplevel)/scripts/90-check-secrets.sh" --staged
