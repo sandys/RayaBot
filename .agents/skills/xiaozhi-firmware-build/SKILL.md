@@ -24,11 +24,12 @@ description: Build xiaozhi-esp32 firmware for the Spotpear sp-esp32-s3-1.28-box 
 2. **Check the build image:** run `scripts/13-idf-image.sh`. If the image is missing, tell the user it is several GB, then run `scripts/13-idf-image.sh --pull`.
 3. **Set the tree state** and confirm it with `scripts/19-patches.sh status`:
    - **stock:** `scripts/19-patches.sh revert`
-   - **dev** (face demo, screenshots): `scripts/19-patches.sh apply`
+   - **dev** (face and name demos, screenshots): `scripts/19-patches.sh apply`
 4. **Build with a label that names the configuration:**
    - stock: `scripts/11-build-firmware.sh` (label `stock-v2.5.2`)
    - English UI: `scripts/11-build-firmware.sh --label en-v2.5.2 --sdkconfig-append config/lang-en-us.sdkconfig`
    - dev face demo: `scripts/11-build-firmware.sh --label dev-face-v2.5.2 --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-face-demo.sdkconfig`
+   - dev name demo (animated name, silent offline): `scripts/11-build-firmware.sh --label dev-name-v2.5.2 --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-name-demo.sdkconfig`. Another name: `--set 'CONFIG_XZ_DEV_NAME_TEXT="NAME"'` with its own label.
    - own server: add `--set 'CONFIG_OTA_URL="http://SERVER-IP:8002/xiaozhi/ota/"'`. String values keep their quotes.
 5. **Read the end of the build output.** Expect `OK - all expected files are present, fit their regions and are internally consistent` and `N/N files match`. Measured times:
    - first build: about 8 min

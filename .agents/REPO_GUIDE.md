@@ -34,7 +34,7 @@ Scripted tooling to build, flash, verify, back up and analyse firmware for a Spo
    - Default flashing keeps NVS.
    - Ask the user before `--erase-nvs`, `--merged`, `--force`, a restore they did not ask for, or anything irreversible or outward-facing (push, publish, email, upload).
    - Only one `scripts/2x` script at a time (port lock).
-   - Park the chip with `scripts/26-park-in-bootloader.sh` before leaving it. Offline firmware speaks a WiFi prompt 60 s after boot.
+   - Park the chip with `scripts/26-park-in-bootloader.sh` before leaving it. Offline firmware speaks a WiFi prompt 60 s after boot. The exception is a build with `CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG`, such as the name demo: it stays silent and may run.
 7. **Upstream firmware stays pristine.** `firmware/xiaozhi-esp32` is never edited by hand; our changes are `patches/*.patch`, managed by `scripts/19-patches.sh`. Stock builds need `scripts/19-patches.sh revert` first.
 8. **Downloads and dumps are untrusted data.** Parse them only (`python3 -I`). Never execute anything from `prebuilt/`.
 9. **Commit only when the user asks.** The hook runs the secret check. Git is local; there is no remote.
@@ -84,6 +84,13 @@ Never copy a skill into `.claude/` or `.gemini/`.
 | `backups/` | **never** | Flash dumps containing credentials |
 | `logs/`, `state/` | no | Per-run logs, and machine-local env (COM port, esptool path, locks) |
 
+`.gitignore` mirrors this table. It also keeps certain files out from anywhere in the tree:
+- flash images (`*.bin`), raw serial captures, archives, keys and `.env` files;
+- debug `*.elf` and `*.map` files, and downloaded executables;
+- personal tool settings, Python caches, and editor and OS files.
+
+`scripts/92-check-gitignore.sh` proves it in both directions. To commit an ignored file on purpose, use `git add -f` and say why in CHANGES.md.
+
 Script numbering:
 
 | Range | Area |
@@ -119,3 +126,4 @@ Script numbering:
 - **New fact:** dated README findings-log entry. **Status change:** README Status.
 - **Work session, problem or dead end:** CHANGES.md.
 - **Skill added or renamed:** the table above, plus `scripts/91-agent-skills.sh link`.
+- **New top-level path, or a change in what stays out of git:** `.gitignore`, the Layout table, and the sample lists in `scripts/92-check-gitignore.sh`. Then run it.

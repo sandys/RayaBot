@@ -24,6 +24,9 @@ scripts/11-build-firmware.sh --label my-server \
 scripts/19-patches.sh apply
 scripts/11-build-firmware.sh --label dev-face-v2.5.2 \
     --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-face-demo.sdkconfig
+# ... or with the animated name ("Sandeep"; silent offline)
+scripts/11-build-firmware.sh --label dev-name-v2.5.2 \
+    --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-name-demo.sdkconfig
 scripts/19-patches.sh revert                   # back to pristine upstream for stock builds
 ```
 
@@ -88,7 +91,8 @@ scripts/19-patches.sh revert                   # back to pristine upstream for s
 ## Local changes to the firmware
 
 Our changes live in `patches/xz-dev-tools.patch`; `scripts/19-patches.sh status|apply|revert|refresh`
-manages it. The patch adds `main/xz_dev.cc` and a Kconfig menu *Local development tools (xz)*.
+manages it. The patch adds `main/xz_dev.cc`, a Kconfig menu *Local development tools (xz)*, and
+one guarded change in `main/boards/common/wifi_board.cc`.
 Everything is off by default, so a build with the patch applied and no `XZ_DEV_*` options set
 behaves like stock.
 
@@ -96,6 +100,8 @@ behaves like stock.
 |---|---|
 | `CONFIG_XZ_DEV_SERIAL_SCREENSHOT` | Snapshots the LVGL screen as JPEG and prints it base64-encoded on the console (`XZSHOT …`). `scripts/27-screenshot.sh` turns it into image files |
 | `CONFIG_XZ_DEV_FACE_DEMO` | While offline, loads the PNG faces from the assets partition and shows one after another (`XZFACE …`). Stock firmware shows them only once online |
+| `CONFIG_XZ_DEV_NAME_DEMO`, `CONFIG_XZ_DEV_NAME_TEXT` | While the device is starting (offline), a full-screen panel shows the text animated (`XZNAME …`). It uses the largest enabled `LV_FONT_MONTSERRAT_*` that fits the round panel. The letters drop in, then bob in a rainbow wave inside a ring of chasing lights. Hidden in WiFi setup mode or online. Every 5 s it reports its redraw rate and cost. Keep each animation step under LVGL's 32 changed areas, or every redraw becomes the whole screen (README findings log) |
+| `CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG` | `wifi_board.cc` starts no 60 s timeout, and does not enter setup mode when no WiFi is saved, so there is no voice prompt and no hotspot. It keeps retrying the saved networks. BOOT while starting still enters setup mode |
 
 `scripts/17-test-screenshot-protocol.sh` tests the screenshot encoder against the host decoder
 without hardware. Run it after any change to `xz_dev.cc`.

@@ -24,6 +24,103 @@ Running log of the work in this repo: what was done, what went wrong, and which 
 | 12 | Copy skills per tool, or symlink a whole `.claude/skills` directory | Copies drift. Claude Code documents only per-skill links. | One canonical `.agents/skills/<name>`, with per-skill links in `.claude/skills` and `.gemini/skills`, kept by `scripts/91-agent-skills.sh link` |
 | 13 | Plain substring matching of NVS secret values | False positives: short vendor test values inside longer strings, such as the base64 alphabet or a fake test token | Token-boundary matching plus a public-placeholder list (`scripts/py/secret_scan.py`) |
 | 14 | Trust the current online docs for what an installed CLI does (Gemini's `.agents/skills` alias), or a model's answer for what it loaded | The installed Gemini CLI 0.27.3 predates the alias: its `skillManager.js` reads only `~/.gemini/skills` and `<project>/.gemini/skills`. A model's answer can fail on billing, or leave things out. | Ask the installed tool itself: `scripts/91-agent-skills.sh discover --claude` (Gemini's listing, the prompt Codex would send, Claude Code's debug log) |
+| 15 | Speed up an LVGL animation with a shorter timer period, or raise `LV_INV_BUF_SIZE` | 33 → 10 ms changed nothing. Each step marked 38 changed areas, over LVGL's 32, so every redraw was the whole screen. The limit is a `#define` in managed LVGL code, not Kconfig. | Keep a step under 32 areas, and read `fps`, `px` and `full` in `XZNAME alive` (`main/xz_dev.cc`, `scripts/28`) |
+
+## 2026-11-10 09:05–09:20 — a complete .gitignore, proved by scripts/92
+
+The user asked whether the firmware binaries go into the commit. They don't: `out/` is ignored. The user then asked for a legitimate `.gitignore`.
+
+**Work**
+- **`.gitignore` rewritten** in four sections: secrets; large or re-creatable; per-machine; personal, Python, editors and OS. Each rule says why.
+  - Kept: the eight folders (`backups/`, `firmware/`, `out/`, `cache/`, `prebuilt/`, `tools/`, `state/`, `logs/`), `.claude/settings.local.json`, Python caches.
+  - New, matching anywhere in the tree:
+    - `*.bin`, for a dump copied out of `backups/` or a firmware image.
+    - `*.raw`, for serial captures, which name the board UUID.
+    - Archives, `.env` files and keys.
+    - `*.elf` and `*.map`, the 35 MB and 23 MB debug outputs.
+    - `*.exe` and `*.dll`, untrusted downloads (rule 8).
+    - `CLAUDE.local.md`, venvs, editor and OS files, and WSL's `*:Zone.Identifier`.
+- **New `scripts/92-check-gitignore.sh`:**
+  - Git itself judges sample paths (`git check-ignore --no-index`): 47 that must be ignored and 31 that must stay committable.
+  - It also requires that no tracked file matches a rule.
+  - `--untracked` lists what `git add -A` would take. `--selftest` covers 5 cases in a throwaway repo under `cache/`.
+- **Results:**
+  - Checks: 47/47, 31/31, and 0 of 111 tracked files. Selftest: 5/5.
+  - `git status --ignored` shows the same eight folders as before, so nothing visible became hidden.
+  - The untracked files are exactly the intended new ones.
+- **Docs:** the repo guide (a Layout note and a "Keep in sync" line), the bring-up skill's finishing steps, and the README index and Status.
+
+**Problems**
+- None broke. The old `.gitignore` was correct but covered only the known folders. A dump or image copied elsewhere, a raw capture or an archive was left to the pre-commit hook alone. The hook scans file bytes as stored (`secret_scan.py` has no archive handling), so it cannot see into a compressed archive.
+
+**Discarded**
+- **Ignoring `*.log` or `*.jpg` everywhere** → it would drop the committed evidence in `docs/evidence/`. The selftest proves 92 catches a `*.log` rule.
+- **`build/`, `managed_components/` and `sdkconfig.old` rules** → no ESP-IDF build runs outside `firmware/` (docker, outputs in `out/`). A rule for something that cannot happen would mislead.
+- **Running 92 in the pre-commit hook** → not asked for, and `.gitignore` rarely changes. It can be added later.
+
+## 2026-11-10 08:05–08:55 — animated name "Sandeep" instead of the face demo
+
+The user asked for the text "Sandeep" on the screen instead of the faces, animated if possible.
+
+**Work**
+- **Dev patch** (`patches/xz-dev-tools.patch`, 5 files):
+  - `CONFIG_XZ_DEV_NAME_DEMO` and `CONFIG_XZ_DEV_NAME_TEXT` in `main/xz_dev.cc`: a full-screen LVGL panel on top of the stock UI, created after `SetupUI()`.
+    - The letters drop in one by one with a bounce, then bob in a travelling wave in scrolling rainbow colours.
+    - A ring of 24 lights shows a bright light chasing round.
+    - One `lv_timer` (30 ms) makes each step, writing only values that changed, and redraws it at once with `lv_refr_now`.
+    - Shown only in the Starting state.
+    - A task polls every 500 ms: it hides the panel in WiFi setup or online, and keeps it in front. It prints `XZNAME alive` every 5 s.
+  - `CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG` in `main/boards/common/wifi_board.cc`: no 60 s timeout timer, and no immediate setup mode when no WiFi is saved. BOOT still enters setup.
+  - Kconfig help for all three options.
+  - `scripts/17` host test still passes; the patch round-trips with revert and apply.
+- **Font fit:** the firmware tries every enabled Montserrat size, largest first. It keeps the first whose glyph boxes (wave included) stay inside a circle 5 px inside the ring.
+  - Glyph widths from LVGL's font files for "Sandeep": 162 / 180 / 197 / 215 px at 36 / 40 / 44 / 48 px.
+  - `config/dev-name-demo.sdkconfig` therefore enables 44 and 40.
+- **Script:** `scripts/28-face-demo.sh` became `scripts/28-dev-demo.sh --demo face|name`.
+  - The name checks are name, shots (≥ 3 different pictures), motion and quiet.
+  - Motion and quiet keep listening without a reset until about 72 s after boot, past the stock 60 s timeout.
+  - The name demo leaves the device running; the face demo still parks.
+  - References were updated in README, the two skills, `docs/build.md` and `scripts/29`.
+- **Device runs** (all with 28):
+  - 08:20, first flash: all checks PASS, but only 16 steps per second.
+  - 08:27, timer 33 → 10 ms: still 16.
+  - 08:42, the speed fix: 24–25 redraws per second, none of them whole-screen.
+  - 08:49 and 08:51, `--no-flash` re-runs after the script fixes: PASS. The 08:51 run wrote `docs/evidence/name-demo/`.
+- **Speed fix:**
+  - Cause: LVGL keeps 32 changed areas per redraw, and a step marked 38 (README findings log, 08:42).
+  - The dim lights follow the rainbow only every 6th step (`kDimEvery`).
+  - Each step is redrawn at once, so two steps never share a redraw.
+  - A redraw probe (`LV_EVENT_RENDER_START`, `FLUSH_START`, `RENDER_READY`) adds `fps`, `draw_ms`, `px` and `full` to `XZNAME alive`.
+- **Script 28, second round:**
+  - `motion` requires ≥ 15 steps/s, the redraw figures, and fewer than 1 in 10 whole-screen redraws.
+  - The console copy starts at the first ROM banner.
+  - `--evidence DIR` copies a passing run with UUID-shaped values redacted, and fails if one survives.
+- **Also updated:** the repo guide's parking rule names the silent-build exception. The flash-and-verify skill covers `--evidence` and the 32-area limit.
+
+**Problems**
+- **Slow animation:** 16 steps per second, and every redraw was the whole screen (see the speed fix).
+- **The first `--no-flash` run FAILed `motion` ("rising: NO"):**
+  - The app was still running when 27 opened the port.
+  - Its last heartbeat, cut off mid-line by the reset's ROM banner, headed the capture and looked like a restart.
+  - Fix: the copy now starts at the first banner. Not the last one, because a crash and reboot during the run must stay visible.
+- **The board UUID is in every boot log:** the evidence copy redacts it.
+- **About 8,000 px per redraw are unexplained:** probably the stock UI's scrolling labels behind the panel. No area dump was made.
+
+**Discarded**
+- **A rotating full-screen `lv_arc` for the ring** → it redraws the whole 240×240 screen every frame. Small dot objects redraw only the lights that change.
+- **One label for the whole word** → the letters could not move separately. Instead there is one label per letter, placed at its pen position from `lv_font_get_glyph_width(letter, next)`, so kerning is kept.
+- **Fitting the font by line height** → too cautious: it rejects 44 px although the ink fits. Instead the firmware checks each glyph's box (`lv_font_get_glyph_dsc`; box top = `line_height - base_line - box_h - ofs_y`, `lv_draw_label.c:626`).
+- **Drawing on `lv_layer_top()`** → the screenshot path snapshots only `lv_screen_active()`, so screenshots would not show the name. The panel is a child of the active screen instead; all stock screen objects are created earlier, in `SetupUI()`.
+- **Not starting the network at all** → BOOT in the Starting state calls `EnterWifiConfigMode()`, which uses a `WifiManager` that was never initialised. Only the automatic setup-mode paths are switched off instead.
+- **Muting the WiFi prompt** → the volume persists in NVS (Do not repeat #6). Not entering setup mode also keeps the open hotspot away.
+- **A second copy of script 28 for the name** → generalised with `--demo` instead (DRY).
+- **A shorter timer period (33 → 10 ms)** → no change: drawing, not the period, set the pace.
+- **Stepping from the display's `LV_EVENT_REFR_START`** → rejected after reading `lv_refr.c`.
+  - Without a perf monitor, LVGL's refresh timer pauses itself after each redraw, and only a change resumes it.
+  - So a step that changed nothing would stop the animation for good.
+  - Instead an `lv_timer` steps, then calls `lv_refr_now`.
+- **Raising `LV_INV_BUF_SIZE`** → it is a `#define` inside the managed LVGL component, not a Kconfig option, and we don't edit managed components.
+- **Hiding or unloading the stock screen to stop its scrolling labels** → it changes stock UI state for perhaps a third of a redraw. Not done.
 
 ## 2026-11-10 07:10–08:00 — git, CHANGES.md, secret guard, agent skills
 

@@ -1,0 +1,32 @@
+I (15268) xz_dev: screenshot task finished
+I (15578) WifiStation: No AP found, next scan in 20 seconds
+XZNAME alive steps=356 per_s=23 fps=23 draw_ms=27.8 px=18879 full=0 shown=1 state=1 uptime_ms=15628
+I (18778) PowerManager: ADC value: 2251 average: 2245 level: 58
+I (20548) SystemInfo: free sram: 164923 minimal sram: 40364
+XZNAME alive steps=481 per_s=24 fps=24 draw_ms=26.8 px=18875 full=0 shown=1 state=1 uptime_ms=20629
+I (24778) PowerManager: ADC value: 2239 average: 2245 level: 58
+XZNAME alive steps=606 per_s=25 fps=25 draw_ms=26.7 px=18873 full=0 shown=1 state=1 uptime_ms=25628
+I (30548) SystemInfo: free sram: 164923 minimal sram: 40364
+I (30778) PowerManager: ADC value: 2238 average: 2242 level: 58
+XZNAME alive steps=731 per_s=24 fps=24 draw_ms=26.8 px=18920 full=0 shown=1 state=1 uptime_ms=30632
+I (35578) WifiStation: Scanning all channels
+XZNAME alive steps=856 per_s=24 fps=24 draw_ms=26.8 px=18876 full=0 shown=1 state=1 uptime_ms=35639
+I (36778) PowerManager: ADC value: 2246 average: 2241 level: 57
+I (37998) WifiStation: No AP found, next scan in 40 seconds
+I (40558) SystemInfo: free sram: 164923 minimal sram: 40364
+XZNAME alive steps=981 per_s=25 fps=25 draw_ms=27.0 px=18874 full=0 shown=1 state=1 uptime_ms=40638
+I (42778) PowerManager: ADC value: 2258 average: 2247 level: 59
+XZNAME alive steps=1106 per_s=25 fps=25 draw_ms=26.8 px=18874 full=0 shown=1 state=1 uptime_ms=45638
+I (48778) PowerManager: ADC value: 2261 average: 2255 level: 61
+I (50558) SystemInfo: free sram: 164923 minimal sram: 40364
+XZNAME alive steps=1231 per_s=24 fps=24 draw_ms=26.8 px=18873 full=0 shown=1 state=1 uptime_ms=50638
+I (54778) PowerManager: ADC value: 2248 average: 2255 level: 61
+XZNAME alive steps=1356 per_s=24 fps=24 draw_ms=26.8 px=18875 full=0 shown=1 state=1 uptime_ms=55638
+I (60558) SystemInfo: free sram: 164923 minimal sram: 40364
+I (60778) PowerManager: ADC value: 2281 average: 2263 level: 62
+XZNAME alive steps=1481 per_s=24 fps=24 draw_ms=26.8 px=18874 full=0 shown=1 state=1 uptime_ms=60639
+XZNAME alive steps=1606 per_s=24 fps=24 draw_ms=26.8 px=18873 full=0 shown=1 state=1 uptime_ms=65640
+I (66778) PowerManager: ADC value: 2259 average: 2262 level: 62
+I (70558) SystemInfo: free sram: 164923 minimal sram: 40364
+XZNAME alive steps=1731 per_s=25 fps=25 draw_ms=26.8 px=18873 full=0 shown=1 state=1 uptime_ms=70639
+I (72778) PowerManager: ADC value: 2237 average: 2259 level: 62

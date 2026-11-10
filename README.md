@@ -27,13 +27,14 @@ _See the [findings log](#findings-log) at the bottom for the dated trail._
 | Serial console capture | ✅ full boot log from the ROM banner (`logs/serial/`) |
 | Factory firmware identified | ✅ xiaozhi **v2.1.0**, board `sp-esp32-s3-1.28-box` (`scripts/30-analyze-flash-image.sh`) |
 | Firmware source | ✅ cloned, tag `v2.5.2` |
-| Build in docker | ✅ stock `out/…/stock-v2.5.2/` and dev `out/…/dev-face-v2.5.2/` (ESP-IDF v6.1) |
+| Build in docker | ✅ stock `out/…/stock-v2.5.2/`, dev `out/…/dev-face-v2.5.2/` and `out/…/dev-name-v2.5.2/` (ESP-IDF v6.1) |
 | Flash our build | ✅ 5/5 regions hash-verified by the chip, 19 s, NVS kept |
 | **Face on screen** | ✅ **our v2.5.2 build draws the xiaozhi emoji faces**: 8/8 screenshots from the device, see [below](#getting-a-face-on-the-screen) |
+| **Name on screen** | ✅ **animated "Sandeep"**: 8/8 screenshots, 24–25 redraws per second, silent past the 60 s WiFi timeout; see [below](#showing-a-name-on-the-screen) |
 | Way back to factory | ✅ proven on the device: restore → read-back byte-identical → boots factory 2.1.0 (`scripts/29-test-restore.sh`) |
-| Version control | ✅ local git, no remote. The pre-commit hook blocks device secrets (`scripts/90-check-secrets.sh`); [CHANGES.md](CHANGES.md) is the running log |
+| Version control | ✅ local git, no remote. `.gitignore` keeps dumps, flash images, build outputs and per-machine files out, proved by `scripts/92-check-gitignore.sh`. The pre-commit hook blocks device secrets (`scripts/90-check-secrets.sh`); [CHANGES.md](CHANGES.md) is the running log |
 | AI-agent setup | ✅ 6 skills in `.agents/skills/` plus [repo guide](.agents/REPO_GUIDE.md). Claude Code, Gemini CLI and Codex each verified to load all 6 (`scripts/91-agent-skills.sh discover --claude`) |
-| On the device now | dev face-demo build (`dev-face-v2.5.2`, English UI), **parked in the bootloader** (screen dark, silent) |
+| On the device now | dev name-demo build (`dev-name-v2.5.2`, English UI), **running and showing "Sandeep"**. It is silent: it never enters WiFi setup on its own. `scripts/26-park-in-bootloader.sh` parks it |
 | Next | WiFi + a voice server (official xiaozhi.me, or self-hosted); see [next steps](#next-steps) |
 
 ## How the pieces connect
@@ -106,7 +107,7 @@ From the firmware's `config.h` (the factory boot log confirms these drivers star
 scripts/19-patches.sh apply                    # dev tooling into the firmware tree (off unless enabled)
 scripts/11-build-firmware.sh --label dev-face-v2.5.2 \
     --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-face-demo.sdkconfig
-scripts/28-face-demo.sh                        # flash + boot + 8 screenshots + evidence checks + park
+scripts/28-dev-demo.sh --demo face             # flash + boot + 8 screenshots + evidence checks + park
 ```
 
 **To just look at it:** unplug and replug the USB cable, or run `scripts/25-serial-capture.sh --reset run`.
@@ -146,6 +147,39 @@ vs `jpg/image_to_jpeg.cpp:137-138`). On ESP32-S3 every colour except black and w
 yellow faces turn cyan (`docs/evidence/face-demo/stock-snapshot-bug-cyan-laughing.jpg`). This
 affects the MCP `self.screen.snapshot` tool, not the display. Our dev screenshots take their own
 snapshot without the swap.
+
+## Showing a name on the screen
+
+```bash
+scripts/19-patches.sh apply                    # dev tooling into the firmware tree (off unless enabled)
+scripts/11-build-firmware.sh --label dev-name-v2.5.2 \
+    --sdkconfig-append config/lang-en-us.sdkconfig --sdkconfig-append config/dev-name-demo.sdkconfig
+scripts/28-dev-demo.sh --demo name             # flash + boot + 8 screenshots + 72 s of evidence; stays on
+#   add --evidence docs/evidence/name-demo to keep a copy (board UUID redacted), as committed there
+```
+
+`CONFIG_XZ_DEV_NAME_DEMO` (`main/xz_dev.cc`) covers the screen with `CONFIG_XZ_DEV_NAME_TEXT`
+("Sandeep" in `config/dev-name-demo.sdkconfig`):
+- **Font:** the largest enabled Montserrat size whose letters stay inside the round panel. The
+  firmware checks every glyph's box, wave included.
+- **Motion:** the letters drop in one by one with a bounce, then bob in a travelling wave in
+  scrolling rainbow colours.
+- **Ring:** 24 lights along the edge, with a bright light chasing round.
+- **When:** shown while the device is starting (offline). Hidden in WiFi setup mode or online,
+  where the stock UI takes over.
+- **Speed:** 24–25 redraws per second. Each sends about a third of the screen. The firmware
+  reports this every 5 s (`XZNAME alive … fps= draw_ms= px= full=`), and script 28 fails if
+  whole-screen redraws come back. A step must stay under LVGL's 32 changed areas; see the
+  findings log, 08:42.
+
+The same build sets `CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG`:
+- It never enters WiFi setup mode on its own. There is no 60 s voice prompt and no open
+  hotspot; it keeps retrying the saved WiFi instead.
+- So it can stay on with the name showing, silently.
+- Pressing BOOT while it is starting still enters setup mode, which hides the name.
+
+To show another name, change `CONFIG_XZ_DEV_NAME_TEXT` in the fragment, or pass
+`--set 'CONFIG_XZ_DEV_NAME_TEXT="…"'` with a new label. The built-in fonts cover ASCII.
 
 ## Layout
 
@@ -210,7 +244,7 @@ Numbering: `0x` survey/discovery · `1x` source + build · `2x` device I/O (espt
 | `scripts/25-serial-capture.sh [--reset run] [--seconds N] [--until RE] [--label L]` | Scripted serial monitor: records the console to `logs/serial/`, optionally restarting the app first | resets chip with `--reset run` |
 | `scripts/26-park-in-bootloader.sh` | Stops the app and leaves the chip in download mode (stays on USB, silent, screen dark) | resets chip |
 | `scripts/27-screenshot.sh [--reset run] [--count N] [--label L]` | Saves what the LCD is showing as `logs/screens/*.jpg`, decoded from the dev firmware's serial screenshot dump | resets chip with `--reset run` |
-| `scripts/28-face-demo.sh [--no-flash] [--leave-running] [--dir D]` | **End to end:** flash the face-demo build, boot it, collect 8 screenshots, PASS/FAIL the boot-log evidence (app, panel, faces, shots, health), park before the 60 s WiFi prompt | **writes flash** |
+| `scripts/28-dev-demo.sh --demo face\|name [--no-flash] [--park\|--leave-running] [--dir D] [--evidence DIR]` | **End to end:** flash a dev demo build, boot it, collect 8 screenshots, and PASS/FAIL the boot-log evidence. Both demos check app, panel and health. `face` adds faces and shots, then parks before the 60 s WiFi prompt. `name` adds name, shots (≥ 3 different pictures), motion (≥ 15 steps/s, under 1 in 10 redraws whole-screen) and quiet: it listens up to 72 s after boot to prove the animation keeps running and setup mode never starts, then leaves the device running. `--evidence` copies a passing run's screenshots and logs, board UUID redacted | **writes flash** |
 | `scripts/29-test-restore.sh [--file F]` | **Proves the way home:** writes the factory backup back, reads the whole flash back before anything boots, requires a byte-identical match, boots it and checks the app version, then parks. Leaves the device on factory firmware | **writes flash** |
 | `scripts/30-analyze-flash-image.sh <image.bin>` | Says exactly what is in a flash image (dump, merged binary or our build): bootloader, partition table, active OTA slot, app versions, **which board it was built for**, OTA URL, NVS keys (credentials redacted), assets contents | no |
 | `scripts/31-fetch-prebuilt-firmware.sh [--board B] [--version T] [--list]` | Downloads the official prebuilt release ZIP for a board into `prebuilt/<version>/<board>/` (asset names read from the release, not guessed) | no |
@@ -220,6 +254,7 @@ Numbering: `0x` survey/discovery · `1x` source + build · `2x` device I/O (espt
 | `python3 -I scripts/py/png_probe.py <file>` | Decodes PNGs embedded in any file (e.g. an assets image) with the stdlib and prints their true pixel colours; used to prove the screenshot colour bug | no |
 | `scripts/90-check-secrets.sh [--tracked] [--explain] [--selftest] [--install-hook]` | **Pre-commit guard:** refuses commits containing anything under `backups/`, flash images, or the value of any NVS key the analyser redacts (WiFi password, server credentials, board UUID), taken from every dump in `backups/`. It prints file and key only, never a value. `--selftest` proves it on a synthetic dump | no |
 | `scripts/91-agent-skills.sh check\|link\|discover [--claude]\|selftest` | Keeps the AI-agent setup consistent. There is one real copy of each skill in `.agents/skills/`, with per-skill links for Claude Code and Gemini CLI, and `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` point to `.agents/REPO_GUIDE.md`. It validates frontmatter, the four sections and the script paths each skill names. `discover` asks the installed CLIs what they actually load | no |
+| `scripts/92-check-gitignore.sh [--untracked] [--selftest]` | Proves `.gitignore` in both directions, with git itself judging sample paths. Must stay out: dumps and their sidecars, flash images anywhere, raw captures, archives, keys, `firmware/`, `out/`, `cache/`, `prebuilt/`, `tools/`, `logs/`, `state/` and personal or OS files. Must stay committable: evidence, config, patches, scripts, skills and their links. No tracked file may match a rule. `--untracked` lists what `git add -A` would take. `--selftest` proves it catches a broken `.gitignore` | no |
 
 Every script has a header comment with usage (`--help` prints it), and mirrors its output into `logs/`.
 
@@ -255,8 +290,8 @@ container), `scripts/py/*.py` (standard-library Python used by the numbered scri
      that it is idle with the stock neutral face, and it shows its own faces from then on.
      At every boot, the firmware installs any newer version the server offers
      (`application.cc:493-498`), so the official server may replace this dev build with its own
-     release. That is harmless, because faces work online either way. `scripts/28-face-demo.sh`
-     puts the dev build back.
+     release. That is harmless, because faces work online either way. `scripts/28-dev-demo.sh`
+     puts a dev build back.
    * Self-hosted
      ([xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server), in
      docker): needs your LLM/ASR/TTS API keys. Then rebuild with
@@ -345,3 +380,26 @@ container), `scripts/py/*.py` (standard-library Python used by the numbered scri
   - The WiFi setup page has an Enable Sleep Mode checkbox.
   - Community ESPHome configs for this ball exist; both repos and the forum thread were
     confirmed live.
+* **2026-11-10 08:20** — Name demo (`dev-name-v2.5.2`) on the device: all checks PASS.
+  - "Sandeep" fits the round panel in Montserrat 44: the ink is 195×42 px inside a 104 px text
+    circle. The build does not enable 48: by LVGL's font tables the word is 215 px wide there,
+    more than the circle's 208 px.
+  - With `CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG`, the firmware kept retrying the saved WiFi and
+    never entered setup mode, watched to 70 s after boot: no prompt, no hotspot.
+* **2026-11-10 08:42** — **LVGL redraws the whole screen once a redraw has more than 32 changed
+  areas.**
+  - The limit is `LV_INV_BUF_SIZE`, a plain `#define` in LVGL 9.5's `lv_display_private.h`, not a
+    Kconfig option. On overflow, `lv_refr.c:332` swaps the list for the whole screen.
+  - The first name demo marked 38 areas per step: all 24 lights, and 2 per moving letter. Every
+    redraw was the whole screen: 16 steps per second. A shorter timer (33 → 10 ms) changed
+    nothing.
+  - With the dim lights following the rainbow only every 6th step, and one redraw per step
+    (`lv_refr_now`), the result is 24–25 redraws per second, about 18,900 of 57,600 px and
+    26.7 ms per redraw, and no whole-screen redraw in 65 s. Measured in the firmware from
+    LVGL's render and flush events.
+  - Between loops, esp_lvgl_port's task always sleeps: `vTaskDelay(1)` plus an event wait of at
+    least one 10 ms tick (`esp_lvgl_port.c:223-253`). So a step costs the draw plus that sleep,
+    about 40 ms.
+  - The ~8,000 px beyond our letters and lights are probably the stock UI's circular-scrolling
+    labels behind the panel (`lcd_display.cc:486/973/1020`). Not confirmed.
+  - Evidence: `docs/evidence/name-demo/`.

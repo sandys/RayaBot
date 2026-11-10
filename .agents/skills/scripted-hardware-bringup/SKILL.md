@@ -48,6 +48,7 @@ Rules:
    - Park the device, or state what it is running.
    - Run `scripts/90-check-secrets.sh --tracked` and confirm it is clean.
    - Run `scripts/91-agent-skills.sh check` after any skill or guide edit.
+   - Run `scripts/92-check-gitignore.sh` after any change to `.gitignore` or the repo layout. Its `--untracked` list shows what a commit would pick up.
    - Commit only when the user asked. The pre-commit hook re-runs the secret check.
 
 ## Decision Points & Branching Logic

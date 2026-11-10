@@ -1,0 +1,49 @@
+# config/dev-name-demo.sdkconfig — the "name demo" development build: an animated name on screen.
+#
+# Use (the dev patch must be applied first):
+#   scripts/19-patches.sh apply
+#   scripts/11-build-firmware.sh --label dev-name-v2.5.2 \
+#       --sdkconfig-append config/lang-en-us.sdkconfig \
+#       --sdkconfig-append config/dev-name-demo.sdkconfig
+#   scripts/28-dev-demo.sh --demo name          # flash, prove it, leave the name on screen
+#
+# Another name: change CONFIG_XZ_DEV_NAME_TEXT below, or add
+#   --set 'CONFIG_XZ_DEV_NAME_TEXT="Someone"'   (the quotes stay part of the value)
+# to the build and give it its own label. Any UTF-8 text works as long as the Montserrat fonts
+# have its letters; they cover ASCII. At most 24 letters; longer names get a smaller font.
+#
+# What it shows (patches/xz-dev-tools.patch, main/xz_dev.cc)
+#   The name in the largest font below whose letters, wave included, stay inside the round
+#   panel. The letters drop in one by one with a bounce, then bob in a travelling wave in
+#   scrolling rainbow colours. A ring of 24 lights along the edge shows a bright light chasing
+#   round. "Sandeep" measures about 197 px at 44 px, 180 px at 40 px.
+#   It shows while the device is starting (offline). It hides in WiFi configuration mode or
+#   online, where the stock UI owns the screen again.
+#
+# Silence
+#   CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG stops the firmware entering WiFi configuration mode on its
+#   own. Stock firmware enters it 60 s after boot, speaking a prompt and opening an
+#   "Xiaozhi-XXXX" hotspot. This build keeps retrying the saved network instead, so the name
+#   stays up, silently. Pressing BOOT while it is starting still enters configuration mode,
+#   which hides the name.
+#
+# Screenshots (scripts/27-screenshot.sh, run by scripts/28-dev-demo.sh)
+#   The first comes 0.9 s after the screenshot task starts (about 1.7 s after boot), while the
+#   letters are still falling. Then one every 1.7 s, 8 in total, each catching the wave and
+#   the colours at a different phase.
+
+# Dump the LVGL screen as JPEG over the serial console.
+CONFIG_XZ_DEV_SERIAL_SCREENSHOT=y
+CONFIG_XZ_DEV_SCREENSHOT_FIRST_MS=900
+CONFIG_XZ_DEV_SCREENSHOT_PERIOD_MS=1700
+CONFIG_XZ_DEV_SCREENSHOT_COUNT=8
+CONFIG_XZ_DEV_SCREENSHOT_QUALITY=90
+
+# The animated name, and no automatic WiFi configuration mode (no voice prompt).
+CONFIG_XZ_DEV_NAME_DEMO=y
+CONFIG_XZ_DEV_NAME_TEXT="Sandeep"
+CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG=y
+
+# Large built-in fonts for the name; the demo uses the largest that fits.
+CONFIG_LV_FONT_MONTSERRAT_44=y
+CONFIG_LV_FONT_MONTSERRAT_40=y

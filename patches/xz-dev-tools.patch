@@ -11,10 +11,10 @@ index 633ef85..5935a5c 100644
  
  set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
 diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
-index 6a7c0fb..1024ff7 100644
+index 6a7c0fb..53ff03f 100644
 --- a/main/Kconfig.projbuild
 +++ b/main/Kconfig.projbuild
-@@ -1172,4 +1172,60 @@ menu "TAIJIPAI_S3_CONFIG"
+@@ -1172,4 +1172,89 @@ menu "TAIJIPAI_S3_CONFIG"
          启动双声道
  endmenu
  
@@ -72,9 +72,66 @@ index 6a7c0fb..1024ff7 100644
 +    depends on XZ_DEV_FACE_DEMO
 +    default 5000
 +
++config XZ_DEV_NAME_DEMO
++    bool "Show an animated name while the device is offline (demo)"
++    depends on !USE_EMOTE_MESSAGE_STYLE
++    default n
++    help
++        Covers the screen with XZ_DEV_NAME_TEXT in the largest enabled
++        Montserrat font that fits the round panel. The letters drop in one
++        by one, then bob in a wave in scrolling rainbow colours, inside a
++        ring of chasing lights. Shown while the device is starting; hidden
++        when it enters WiFi configuration or goes online. Prints "XZNAME"
++        lines. Enable a large font as well, e.g. LV_FONT_MONTSERRAT_44
++        (see config/dev-name-demo.sdkconfig). See main/xz_dev.cc.
++
++config XZ_DEV_NAME_TEXT
++    string "Name to show"
++    depends on XZ_DEV_NAME_DEMO
++    default "xiaozhi"
++
++config XZ_DEV_WIFI_NO_AUTO_CONFIG
++    bool "Never enter WiFi configuration mode on its own"
++    default n
++    help
++        Stock firmware enters WiFi configuration mode (a hotspot plus a
++        spoken prompt) 60 s after boot when no saved network answers, and
++        at once when none is saved. With this option it keeps retrying the
++        saved networks and stays silent. Pressing BOOT while the device is
++        starting still enters configuration mode. For demo builds; see
++        main/boards/common/wifi_board.cc.
++
 +endmenu
 +
  endmenu
+diff --git a/main/boards/common/wifi_board.cc b/main/boards/common/wifi_board.cc
+index 5b3721d..1e2de93 100644
+--- a/main/boards/common/wifi_board.cc
++++ b/main/boards/common/wifi_board.cc
+@@ -104,13 +104,23 @@ void WifiBoard::TryWifiConnect() {
+     if (have_ssid) {
+         // Start connection attempt with timeout
+         ESP_LOGI(TAG, "Starting WiFi connection attempt");
++#if CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG
++        // Local dev option (xz): no timeout timer, so no automatic switch to config mode.
++        ESP_LOGW(TAG, "XZ dev: no automatic WiFi config mode, retrying the saved networks (BOOT while starting enters it)");
++#else
+         esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
++#endif
+         WifiManager::GetInstance().StartStation();
+     } else {
++#if CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG
++        // Local dev option (xz): stay in the starting state; BOOT still enters config mode.
++        ESP_LOGW(TAG, "XZ dev: no saved WiFi and no automatic WiFi config mode (BOOT while starting enters it)");
++#else
+         // No SSID configured, enter config mode
+         // Wait for the board version to be shown
+         vTaskDelay(pdMS_TO_TICKS(1500));
+         StartWifiConfigMode();
++#endif
+     }
+ }
+ 
 diff --git a/main/main.cc b/main/main.cc
 index f7e8bc3..adf9e80 100755
 --- a/main/main.cc
@@ -98,10 +155,10 @@ index f7e8bc3..adf9e80 100755
  }
 diff --git a/main/xz_dev.cc b/main/xz_dev.cc
 new file mode 100644
-index 0000000..a2df7ec
+index 0000000..6878425
 --- /dev/null
 +++ b/main/xz_dev.cc
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,851 @@
 +// xz_dev.cc - local development helpers. NOT part of upstream xiaozhi-esp32.
 +//
 +// Added by patches/xz-dev-tools.patch of the surrounding project and compiled into
@@ -149,10 +206,31 @@ index 0000000..a2df7ec
 +//   runs Assets::Apply() as usual and replaces the theme slots with its own collection;
 +//   ours stays alive, so an image still referenced by the screen can never dangle.
 +//   Once the device leaves the offline states the demo stops changing the screen.
++//
++// CONFIG_XZ_DEV_NAME_DEMO
++//   Covers the screen with CONFIG_XZ_DEV_NAME_TEXT. It uses the largest enabled Montserrat font
++//   whose glyph boxes stay inside the round panel. The letters drop in one by one with a bounce,
++//   then bob in a travelling wave in scrolling rainbow colours. A ring of 24 lights along the edge
++//   shows a bright light chasing round. One LVGL timer makes each step and redraws it at once. The
++//   panel is a separate object on top of the stock UI, created after it; nothing of the stock UI is
++//   changed. The name shows only while the device is starting (offline, not configuring WiFi). It
++//   hides in WiFi configuration mode or online, where the stock UI owns the screen again. Lines:
++//
++//       XZNAME start text="Sandeep" letters=7 font=44 fonts=44,40,14,default ink=195x42 fits=yes ...
++//       XZNAME alive steps= per_s= fps= draw_ms= px= full= shown=1 state=1 uptime_ms=     (every 5 s)
++//
++//   "alive" covers the last 5 s: animation steps per second, then the display's redraws per second,
++//   the average time LVGL spent on one (drawing, and waiting for the SPI transfers), the average
++//   pixels it sent, and how many redraws sent the whole screen.
++//
++// CONFIG_XZ_DEV_WIFI_NO_AUTO_CONFIG (in main/boards/common/wifi_board.cc)
++//   Stock firmware enters WiFi configuration mode (hotspot plus a spoken prompt) 60 s after boot
++//   when no saved network answers. With this option it keeps retrying the saved networks
++//   instead, so a demo can stay on screen silently. BOOT while starting still enters the mode.
 +
 +#include "sdkconfig.h"
 +
-+#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT || CONFIG_XZ_DEV_FACE_DEMO
++#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT || CONFIG_XZ_DEV_FACE_DEMO || CONFIG_XZ_DEV_NAME_DEMO
 +
 +#include <algorithm>
 +#include <atomic>
@@ -173,6 +251,9 @@ index 0000000..a2df7ec
 +
 +#define TAG "xz_dev"
 +
++#endif
++
++#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT || CONFIG_XZ_DEV_FACE_DEMO
 +namespace {
 +
 +// Name of the face the demo last put on screen; read by the screenshot task. Written once
@@ -180,7 +261,6 @@ index 0000000..a2df7ec
 +std::atomic<const char*> g_shown_face{"-"};
 +
 +}  // namespace
-+
 +#endif
 +
 +// ---------------------------------------------------------------------------------------------
@@ -336,6 +416,465 @@ index 0000000..a2df7ec
 +#endif  // CONFIG_XZ_DEV_FACE_DEMO
 +
 +// ---------------------------------------------------------------------------------------------
++#if CONFIG_XZ_DEV_NAME_DEMO
++
++#include <lvgl.h>
++
++namespace {
++
++// Geometry (px), for a round panel; positions are derived from the display size.
++constexpr int kDots = 24;       // lights in the ring
++constexpr int kDotSize = 8;
++constexpr int kEdgeMargin = 3;  // panel edge -> outside of the ring
++constexpr int kTextGap = 5;     // inside of the ring -> letters, at the top and bottom of the wave
++constexpr int kWaveAmp = 5;     // letters bob this far up and down
++// Speed. LVGL keeps at most 32 changed areas per redraw (LV_INV_BUF_SIZE in lv_display_private.h,
++// not configurable). One more and it redraws the whole 240x240 screen, which then has to cross the
++// SPI bus. A step marks 2 areas per moving letter (where it was, where it is), 1 per other letter,
++// 1 per light whose colour changes. With all 24 lights following the turning rainbow every step,
++// that was 38: every redraw was the whole screen, 16 steps per second. Now the dim lights follow
++// the rainbow only every kDimEvery steps, a different few each time: about 27 at most.
++constexpr uint32_t kDimEvery = 6;
++// Timing (ms)
++constexpr uint32_t kFrameMs = 30;  // one step and its redraw; the FreeRTOS tick (10 ms) rounds it up
++constexpr uint32_t kDropDelayMs = 110;    // between two letters starting to fall
++constexpr uint32_t kDropMs = 1000;        // one letter's fall plus bounces
++constexpr uint32_t kRampMs = 500;         // the wave fades in after a letter has landed
++constexpr uint32_t kWavePeriodMs = 1600;
++constexpr uint32_t kWaveLagDeg = 45;      // wave phase from one letter to the next
++constexpr uint32_t kHuePeriodMs = 4000;   // the letters' rainbow scrolls through the word once
++constexpr uint32_t kRingLapMs = 1800;     // the bright light runs once round the ring
++constexpr uint32_t kRingHueMs = 9000;     // the ring's rainbow turns once
++constexpr int kTail = 9;                  // lights in the bright light's fading tail
++constexpr size_t kMaxLetters = 24;
++
++struct Letter {
++    uint32_t cp;       // Unicode code point
++    std::string utf8;  // its bytes
++};
++
++struct FontChoice {
++    const lv_font_t* font;
++    int px;  // nominal size; 0 = LVGL's default font
++};
++
++// Largest first. Only the sizes enabled in sdkconfig exist (config/dev-name-demo.sdkconfig).
++const FontChoice kFonts[] = {
++#if LV_FONT_MONTSERRAT_48
++    {&lv_font_montserrat_48, 48},
++#endif
++#if LV_FONT_MONTSERRAT_44
++    {&lv_font_montserrat_44, 44},
++#endif
++#if LV_FONT_MONTSERRAT_40
++    {&lv_font_montserrat_40, 40},
++#endif
++#if LV_FONT_MONTSERRAT_36
++    {&lv_font_montserrat_36, 36},
++#endif
++#if LV_FONT_MONTSERRAT_32
++    {&lv_font_montserrat_32, 32},
++#endif
++#if LV_FONT_MONTSERRAT_28
++    {&lv_font_montserrat_28, 28},
++#endif
++#if LV_FONT_MONTSERRAT_24
++    {&lv_font_montserrat_24, 24},
++#endif
++#if LV_FONT_MONTSERRAT_20
++    {&lv_font_montserrat_20, 20},
++#endif
++#if LV_FONT_MONTSERRAT_16
++    {&lv_font_montserrat_16, 16},
++#endif
++#if LV_FONT_MONTSERRAT_14
++    {&lv_font_montserrat_14, 14},
++#endif
++    {LV_FONT_DEFAULT, 0},
++};
++
++// UTF-8 -> code points; malformed bytes are skipped, at most kMaxLetters are kept.
++std::vector<Letter> SplitUtf8(const char* text) {
++    std::vector<Letter> out;
++    const auto* p = reinterpret_cast<const unsigned char*>(text);
++    while (*p != 0 && out.size() < kMaxLetters) {
++        const int len = *p < 0x80 ? 1 : (*p >> 5) == 0x6 ? 2 : (*p >> 4) == 0xE ? 3 : (*p >> 3) == 0x1E ? 4 : 0;
++        uint32_t cp = len == 1 ? *p : (*p & (0x7Fu >> len));
++        bool ok = len > 0;
++        for (int i = 1; ok && i < len; i++) {
++            ok = (p[i] & 0xC0) == 0x80;  // also stops at the terminating 0
++            cp = (cp << 6) | (p[i] & 0x3F);
++        }
++        if (!ok) {
++            p++;
++            continue;
++        }
++        out.push_back({cp, std::string(reinterpret_cast<const char*>(p), static_cast<size_t>(len))});
++        p += len;
++    }
++    return out;
++}
++
++// Where the letters go for one font, and whether the word fits.
++struct Layout {
++    const FontChoice* choice = nullptr;
++    int32_t x0 = 0;            // x of the first letter's pen position
++    int32_t y0 = 0;            // top of every letter's label when it rests
++    std::vector<int32_t> pen;  // pen x of each letter, relative to x0 (kerning included)
++    int32_t ink_w = 0;         // size of the inked part of the whole word
++    int32_t ink_h = 0;
++    int32_t ink_bottom = 0;    // lowest inked row, relative to a label's top
++    bool fits = false;         // every glyph box, at both ends of the wave, lies inside the text circle
++};
++
++Layout LayOut(const FontChoice& choice, const std::vector<Letter>& letters, int cx, int cy, int r_text) {
++    Layout out;
++    out.choice = &choice;
++    const lv_font_t* font = choice.font;
++    // LVGL draws a glyph's box at label top + (line_height - base_line) - box_h - ofs_y
++    // (lv_draw_label.c), and at pen x + ofs_x.
++    const int32_t baseline = font->line_height - font->base_line;
++    struct Box {
++        int32_t l, r, t, b;
++    };
++    std::vector<Box> boxes;
++    int32_t pen = 0;
++    int32_t left = INT32_MAX, right = INT32_MIN, top = INT32_MAX, bottom = INT32_MIN;
++    for (size_t i = 0; i < letters.size(); i++) {
++        const uint32_t next = i + 1 < letters.size() ? letters[i + 1].cp : 0;
++        out.pen.push_back(pen);
++        lv_font_glyph_dsc_t g{};
++        if (lv_font_get_glyph_dsc(font, &g, letters[i].cp, next) && g.box_w > 0 && g.box_h > 0) {
++            const Box b{pen + g.ofs_x, pen + g.ofs_x + g.box_w, baseline - g.box_h - g.ofs_y, baseline - g.ofs_y};
++            boxes.push_back(b);
++            left = std::min(left, b.l);
++            right = std::max(right, b.r);
++            top = std::min(top, b.t);
++            bottom = std::max(bottom, b.b);
++        }
++        pen += lv_font_get_glyph_width(font, letters[i].cp, next);
++    }
++    if (boxes.empty()) {
++        return out;  // nothing visible: only spaces, or glyphs this font does not have
++    }
++    out.x0 = cx - (left + right) / 2;  // centre the ink, not the advance widths
++    out.y0 = cy - (top + bottom) / 2;
++    out.ink_w = right - left;
++    out.ink_h = bottom - top;
++    out.ink_bottom = bottom;
++    const int64_t r2 = static_cast<int64_t>(r_text) * r_text;
++    out.fits = true;
++    for (const Box& b : boxes) {
++        for (int32_t x : {b.l, b.r}) {
++            for (int32_t y : {b.t - kWaveAmp, b.b + kWaveAmp}) {
++                const int64_t dx = out.x0 + x - cx;
++                const int64_t dy = out.y0 + y - cy;
++                if (dx * dx + dy * dy > r2) {
++                    out.fits = false;
++                }
++            }
++        }
++    }
++    return out;
++}
++
++// Marks a colour cache entry as never written: white, which the rainbows never produce (their
++// saturation is 70 % and more).
++constexpr uint32_t kUnset = 0xFFFFFFFFu;
++
++struct NameDemo {
++    lv_obj_t* root = nullptr;  // full-screen black panel on top of the stock UI
++    lv_display_t* disp = nullptr;
++    lv_timer_t* timer = nullptr;
++    std::vector<lv_obj_t*> letters;
++    lv_obj_t* dots[kDots] = {};
++    // Last values written. A step only touches what changed, because every write marks an area.
++    std::vector<int32_t> last_dy;
++    std::vector<uint32_t> last_letter_rgb;
++    uint32_t last_dot_rgb[kDots] = {};
++    int32_t last_dot_glow[kDots] = {};
++    uint32_t t0 = 0;                  // lv_tick when the letters started to fall
++    std::atomic<uint32_t> steps{0};   // animation steps so far, for the heartbeat line
++};
++
++// Touched only with the display lock held: by NameDemoTask through DisplayLockGuard, or by LVGL's
++// own task, which runs the timer and the drop animations.
++NameDemo g_name;
++
++// What the display's redraws cost, for the heartbeat line. LVGL's task writes it while holding the
++// display lock; NameDemoTask copies it under the same lock.
++struct RedrawStats {
++    uint32_t frames = 0;   // redraws
++    uint32_t full = 0;     // redraws that sent the whole screen
++    uint64_t busy_us = 0;  // render start to render ready: drawing, and waiting for earlier SPI transfers
++    uint64_t px = 0;       // pixels sent to the panel
++};
++
++struct RedrawProbe {
++    RedrawStats total;
++    int64_t start_us = 0;
++    uint32_t frame_px = 0;
++    uint32_t screen_px = 0;
++};
++
++RedrawProbe g_redraw;
++
++void OnRedrawEvent(lv_event_t* e) {
++    RedrawProbe& p = g_redraw;
++    switch (lv_event_get_code(e)) {
++        case LV_EVENT_RENDER_START:
++            p.start_us = esp_timer_get_time();
++            p.frame_px = 0;
++            break;
++        case LV_EVENT_FLUSH_START:  // once per transfer to the panel, with the area it sends
++            p.frame_px += lv_area_get_size(static_cast<const lv_area_t*>(lv_event_get_param(e)));
++            break;
++        case LV_EVENT_RENDER_READY:
++            p.total.frames++;
++            p.total.busy_us += static_cast<uint64_t>(esp_timer_get_time() - p.start_us);
++            p.total.px += p.frame_px;
++            if (p.frame_px >= p.screen_px) {
++                p.total.full++;
++            }
++            break;
++        default:
++            break;
++    }
++}
++
++// One animation step: writes what changed since the last one.
++void NameStep() {
++    NameDemo& d = g_name;
++    const uint32_t t = lv_tick_elaps(d.t0);
++    const uint32_t step = d.steps.load(std::memory_order_relaxed);
++    const size_t n = d.letters.size();
++    const uint32_t wave_deg = (t % kWavePeriodMs) * 360 / kWavePeriodMs;
++    const uint32_t hue_deg = (t % kHuePeriodMs) * 360 / kHuePeriodMs;
++    for (size_t i = 0; i < n; i++) {
++        // Wave: a travelling sine, faded in once this letter has landed.
++        int32_t dy = 0;
++        const uint32_t landed = static_cast<uint32_t>(i) * kDropDelayMs + kDropMs;
++        if (t > landed) {
++            const uint32_t since = t - landed;
++            const int32_t ramp = since >= kRampMs ? 256 : static_cast<int32_t>(since * 256 / kRampMs);
++            const auto angle = static_cast<int16_t>(wave_deg + 360 - (static_cast<uint32_t>(i) * kWaveLagDeg) % 360);
++            dy = -(((lv_trigo_sin(angle) * kWaveAmp) >> LV_TRIGO_SHIFT) * ramp) / 256;
++        }
++        if (dy != d.last_dy[i]) {
++            lv_obj_set_style_translate_y(d.letters[i], dy, 0);
++            d.last_dy[i] = dy;
++        }
++        // Colour: a rainbow spread over the word, scrolling through it.
++        const auto hue = static_cast<uint16_t>((hue_deg + 360 - static_cast<uint32_t>(i) * 360 / (n + 1)) % 360);
++        const lv_color_t c = lv_color_hsv_to_rgb(hue, 70, 100);
++        const uint32_t rgb = lv_color_to_u32(c);
++        if (rgb != d.last_letter_rgb[i]) {
++            lv_obj_set_style_text_color(d.letters[i], c, 0);
++            d.last_letter_rgb[i] = rgb;
++        }
++    }
++    // Ring: a bright light with a fading tail runs clockwise over a dim, slowly turning rainbow.
++    const int32_t lap = kDots * 256;  // positions in 1/256 of a light
++    const auto head = static_cast<int32_t>((t % kRingLapMs) * static_cast<uint32_t>(lap) / kRingLapMs);
++    const uint32_t ring_hue = (t % kRingHueMs) * 360 / kRingHueMs;
++    for (int k = 0; k < kDots; k++) {
++        const int32_t behind = ((head - k * 256) % lap + lap) % lap;  // how far the head has passed light k
++        const int32_t glow = behind < kTail * 256 ? 256 - behind / kTail : 0;  // 256 at the head, 0 past the tail
++        // Lit lights change every step. A dim one follows the rainbow only on its turn (kDimEvery).
++        if (glow == 0 && d.last_dot_glow[k] == 0 && d.last_dot_rgb[k] != kUnset &&
++            (step + static_cast<uint32_t>(k)) % kDimEvery != 0) {
++            continue;
++        }
++        d.last_dot_glow[k] = glow;
++        const auto v = static_cast<uint8_t>(15 + glow * 85 / 256);
++        const auto hue = static_cast<uint16_t>((static_cast<uint32_t>(k) * 360 / kDots + ring_hue) % 360);
++        const lv_color_t c = lv_color_hsv_to_rgb(hue, 85, v);
++        const uint32_t rgb = lv_color_to_u32(c);
++        if (rgb != d.last_dot_rgb[k]) {
++            lv_obj_set_style_bg_color(d.dots[k], c, 0);
++            d.last_dot_rgb[k] = rgb;
++        }
++    }
++    d.steps.fetch_add(1, std::memory_order_relaxed);
++}
++
++// LVGL timer: one step, then at once the redraw of what it changed. Left to LVGL's own refresh
++// timer, two steps could fall into one redraw and together mark more than 32 areas.
++void NameFrame(lv_timer_t*) {
++    NameStep();
++    lv_refr_now(g_name.disp);
++}
++
++// Builds the panel and starts the animation. Call with the display lock held.
++bool CreateNameDemo(Display* display) {
++    NameDemo& d = g_name;
++    const int w = display->width();
++    const int h = display->height();
++    const int cx = w / 2;
++    const int cy = h / 2;
++    const int r_ring = std::min(w, h) / 2 - kEdgeMargin - kDotSize / 2;  // centre line of the lights
++    const int r_text = r_ring - kDotSize / 2 - kTextGap;                 // the letters stay inside this circle
++
++    const std::vector<Letter> letters = SplitUtf8(CONFIG_XZ_DEV_NAME_TEXT);
++    if (letters.empty()) {
++        printf("XZNAME no text to show (CONFIG_XZ_DEV_NAME_TEXT is empty)\n");
++        return false;
++    }
++    // The largest font that fits; the last (smallest) one if none does.
++    Layout layout;
++    std::string sizes;
++    for (const FontChoice& choice : kFonts) {
++        sizes += (sizes.empty() ? "" : ",") + (choice.px ? std::to_string(choice.px) : std::string("default"));
++    }
++    for (const FontChoice& choice : kFonts) {
++        layout = LayOut(choice, letters, cx, cy, r_text);
++        if (layout.fits) {
++            break;
++        }
++    }
++
++    d.root = lv_obj_create(lv_screen_active());
++    lv_obj_remove_style_all(d.root);
++    lv_obj_set_pos(d.root, 0, 0);
++    lv_obj_set_size(d.root, w, h);
++    lv_obj_set_style_bg_color(d.root, lv_color_black(), 0);
++    lv_obj_set_style_bg_opa(d.root, LV_OPA_COVER, 0);
++    lv_obj_remove_flag(d.root, LV_OBJ_FLAG_SCROLLABLE);
++    lv_obj_remove_flag(d.root, LV_OBJ_FLAG_CLICKABLE);
++
++    d.disp = lv_obj_get_display(d.root);
++    g_redraw.screen_px = static_cast<uint32_t>(lv_display_get_horizontal_resolution(d.disp) *
++                                               lv_display_get_vertical_resolution(d.disp));
++    for (lv_event_code_t code : {LV_EVENT_RENDER_START, LV_EVENT_FLUSH_START, LV_EVENT_RENDER_READY}) {
++        lv_display_add_event_cb(d.disp, OnRedrawEvent, code, nullptr);
++    }
++
++    for (int k = 0; k < kDots; k++) {
++        const auto angle = static_cast<int16_t>(270 + k * 360 / kDots);  // light 0 at 12 o'clock, then clockwise
++        lv_obj_t* dot = lv_obj_create(d.root);
++        lv_obj_remove_style_all(dot);
++        lv_obj_set_size(dot, kDotSize, kDotSize);
++        lv_obj_set_pos(dot, cx + ((lv_trigo_cos(angle) * r_ring) >> LV_TRIGO_SHIFT) - kDotSize / 2,
++                       cy + ((lv_trigo_sin(angle) * r_ring) >> LV_TRIGO_SHIFT) - kDotSize / 2);
++        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
++        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
++        lv_obj_set_style_bg_color(dot, lv_color_black(), 0);
++        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
++        d.dots[k] = dot;
++        d.last_dot_rgb[k] = kUnset;  // the first step writes every light
++    }
++
++    // Each letter is its own label at its pen position (kerning included), so it can move alone.
++    // It starts just above the panel and falls into place, one letter after another.
++    const int32_t start_y = -(layout.ink_bottom + 2);
++    for (size_t i = 0; i < letters.size(); i++) {
++        lv_obj_t* label = lv_label_create(d.root);
++        lv_obj_set_style_pad_all(label, 0, 0);
++        lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, 0);
++        lv_obj_set_style_text_font(label, layout.choice->font, 0);
++        lv_obj_set_style_text_color(label, lv_color_white(), 0);
++        lv_label_set_text(label, letters[i].utf8.c_str());
++        lv_obj_set_pos(label, layout.x0 + layout.pen[i], start_y);
++        d.letters.push_back(label);
++        d.last_dy.push_back(0);
++        d.last_letter_rgb.push_back(kUnset);
++
++        lv_anim_t a;
++        lv_anim_init(&a);
++        lv_anim_set_var(&a, label);
++        lv_anim_set_exec_cb(&a, [](void* obj, int32_t y) { lv_obj_set_y(static_cast<lv_obj_t*>(obj), y); });
++        lv_anim_set_values(&a, start_y, layout.y0);
++        lv_anim_set_duration(&a, kDropMs);
++        lv_anim_set_delay(&a, static_cast<uint32_t>(i) * kDropDelayMs);
++        lv_anim_set_path_cb(&a, lv_anim_path_bounce);
++        lv_anim_start(&a);
++    }
++    d.t0 = lv_tick_get();
++    d.timer = lv_timer_create(NameFrame, kFrameMs, nullptr);
++    NameStep();  // colours and lights for the very first frame; LVGL's own refresh draws it
++
++    printf("XZNAME start text=\"%s\" letters=%u font=%s fonts=%s ink=%ldx%ld fits=%s text_r=%d ring_r=%d "
++           "lights=%d uptime_ms=%lld\n",
++           CONFIG_XZ_DEV_NAME_TEXT, static_cast<unsigned>(letters.size()),
++           layout.choice->px ? std::to_string(layout.choice->px).c_str() : "default", sizes.c_str(),
++           static_cast<long>(layout.ink_w), static_cast<long>(layout.ink_h), layout.fits ? "yes" : "no", r_text,
++           r_ring, kDots, static_cast<long long>(esp_timer_get_time() / 1000));
++    return true;
++}
++
++void NameDemoTask(void*) {
++    Display* display = Board::GetInstance().GetDisplay();
++    bool started = false;
++    if (display != nullptr) {
++        DisplayLockGuard lock(display);
++        started = lock && CreateNameDemo(display);
++    }
++    if (!started) {
++        printf("XZNAME not started (%s)\n", display != nullptr ? "see the line above" : "no display");
++        vTaskDelete(nullptr);
++        return;
++    }
++    auto& app = Application::GetInstance();
++    bool shown = true;
++    uint32_t last_steps = 0;
++    int64_t last_us = esp_timer_get_time();
++    RedrawStats redraw{};  // copied under the display lock every 500 ms
++    RedrawStats last_redraw{};
++    TickType_t wake = xTaskGetTickCount();
++    for (uint32_t tick = 1;; tick++) {
++        xTaskDelayUntil(&wake, pdMS_TO_TICKS(500));
++        const DeviceState state = app.GetDeviceState();
++        const bool want = state == kDeviceStateStarting;  // offline and not configuring WiFi
++        {
++            DisplayLockGuard lock(display);
++            if (lock) {
++                if (want != shown) {
++                    if (want) {
++                        lv_obj_remove_flag(g_name.root, LV_OBJ_FLAG_HIDDEN);
++                        lv_timer_resume(g_name.timer);
++                    } else {
++                        lv_obj_add_flag(g_name.root, LV_OBJ_FLAG_HIDDEN);
++                        lv_timer_pause(g_name.timer);
++                    }
++                    shown = want;
++                    printf("XZNAME %s state=%d uptime_ms=%lld\n",
++                           shown ? "shown again" : "hidden: the stock UI owns the screen", static_cast<int>(state),
++                           static_cast<long long>(esp_timer_get_time() / 1000));
++                }
++                // Stay in front, should anything be added to the screen later.
++                lv_obj_t* parent = lv_obj_get_parent(g_name.root);
++                if (shown && lv_obj_get_index(g_name.root) != static_cast<int32_t>(lv_obj_get_child_count(parent)) - 1) {
++                    lv_obj_move_to_index(g_name.root, -1);
++                }
++                redraw = g_redraw.total;
++            }
++        }
++        if (tick % 10 == 0) {  // every 5 s
++            const uint32_t steps = g_name.steps.load(std::memory_order_relaxed);
++            const int64_t now = esp_timer_get_time();
++            const int64_t dt_us = std::max<int64_t>(1, now - last_us);
++            const uint32_t frames = redraw.frames - last_redraw.frames;
++            const uint64_t busy_us = frames ? (redraw.busy_us - last_redraw.busy_us) / frames : 0;
++            const uint64_t px = frames ? (redraw.px - last_redraw.px) / frames : 0;
++            printf("XZNAME alive steps=%lu per_s=%u fps=%u draw_ms=%u.%u px=%lu full=%lu shown=%d state=%d "
++                   "uptime_ms=%lld\n",
++                   static_cast<unsigned long>(steps), static_cast<unsigned>((steps - last_steps) * 1000000LL / dt_us),
++                   static_cast<unsigned>(frames * 1000000LL / dt_us), static_cast<unsigned>(busy_us / 1000),
++                   static_cast<unsigned>(busy_us % 1000 / 100), static_cast<unsigned long>(px),
++                   static_cast<unsigned long>(redraw.full - last_redraw.full), shown ? 1 : 0,
++                   static_cast<int>(state), static_cast<long long>(now / 1000));
++            last_steps = steps;
++            last_us = now;
++            last_redraw = redraw;
++        }
++    }
++}
++
++}  // namespace
++
++#endif  // CONFIG_XZ_DEV_NAME_DEMO
++
++// ---------------------------------------------------------------------------------------------
 +#if CONFIG_XZ_DEV_SERIAL_SCREENSHOT
 +
 +#ifndef XZ_DEV_HOST_TEST
@@ -465,5 +1004,9 @@ index 0000000..a2df7ec
 +    ESP_LOGI(TAG, "face demo enabled: first after %d ms, then every %d ms while offline",
 +             CONFIG_XZ_DEV_FACE_DEMO_FIRST_MS, CONFIG_XZ_DEV_FACE_DEMO_PERIOD_MS);
 +    xTaskCreate(FaceDemoTask, "xz_dev_face", 8192, nullptr, 1, nullptr);
++#endif
++#if CONFIG_XZ_DEV_NAME_DEMO
++    ESP_LOGI(TAG, "name demo enabled: \"%s\" while the device is starting (offline)", CONFIG_XZ_DEV_NAME_TEXT);
++    xTaskCreate(NameDemoTask, "xz_dev_name", 8192, nullptr, 1, nullptr);
 +#endif
 +}

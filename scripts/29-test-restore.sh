@@ -18,7 +18,7 @@
 #                                    prompt plays
 #
 # Afterwards the device runs the factory firmware. Put a build back with
-# scripts/23-flash-firmware.sh (or scripts/28-face-demo.sh).
+# scripts/23-flash-firmware.sh (or scripts/28-dev-demo.sh).
 # Output is also saved to logs/<timestamp>-test-restore.log
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"

@@ -1,29 +1,89 @@
-# What stays out of git, and why. Everything else in this repo is committed.
+# .gitignore: what stays out of git, and why. Everything else in this repo is committed.
+#
+# It mirrors the Layout table in .agents/REPO_GUIDE.md. After any change, run
+#   scripts/92-check-gitignore.sh
+# It proves both directions: secret-bearing and re-creatable paths stay out, and evidence, config,
+# patches, scripts and skill links stay committable.
 # scripts/90-check-secrets.sh runs as the pre-commit hook and blocks secrets that slip past this.
+# To commit an ignored file on purpose: git add -f <file>, and say why in CHANGES.md.
 
-# SECRETS: full flash dumps. Their NVS partition holds the WiFi password, the xiaozhi server's
-# MQTT/websocket credentials and the board UUID. Never commit, copy or upload them.
+# ---- Secrets ---------------------------------------------------------------------------------
+
+# Full flash dumps and their sidecar files. The NVS partition holds the WiFi password, the
+# xiaozhi server's MQTT/websocket credentials and the board UUID. Never commit, copy or upload.
 /backups/
 
-# Large or re-creatable. Each one has a script that rebuilds it.
+# Flash images and firmware binaries anywhere else. A dump copied out of backups/ carries the
+# same secrets. Builds are re-created from patches/ and config/ by scripts/11-build-firmware.sh.
+*.bin
+
+# Raw serial captures: every boot log names the board UUID. Evidence goes in as a redacted .log
+# copy (scripts/28-dev-demo.sh --evidence).
+*.raw
+
+# Archives: the secret scan cannot look inside them.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tgz
+*.gz
+*.xz
+
+# Credentials and keys
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# ---- Large or re-creatable: each has a script that rebuilds it --------------------------------
+
 # upstream firmware checkout (scripts/10-fetch-firmware-source.sh); our changes live in patches/
 /firmware/
 # build artifacts (scripts/11-build-firmware.sh)
 /out/
-# docker ccache, component-manager downloads, test scratch (scripts/11, 17, 33)
+# docker ccache, component-manager downloads, test scratch (scripts/11, 17, 33, 92)
 /cache/
 # official prebuilt downloads (scripts/31-fetch-prebuilt-firmware.sh)
 /prebuilt/
 # Windows esptool.exe (scripts/20-setup-esptool.sh)
 /tools/
 
-# Per-machine state and per-run output.
+# Debug images and link maps from any build (the app's ELF alone is about 35 MB)
+*.elf
+*.map
+
+# Downloaded executables are untrusted (REPO_GUIDE rule 8) and are never committed.
+*.exe
+*.dll
+
+# ---- Per-machine state and per-run output -----------------------------------------------------
+
 # COM port, esptool path, image record, port lock (written by scripts 03, 13, 14, 20, 2x)
 /state/
 # one log per script run; evidence worth keeping is copied to docs/evidence/
 /logs/
 
-# Local tool settings and Python caches
+# ---- Personal settings, Python, editors, operating systems ------------------------------------
+
+# Claude Code's personal settings and memory (the shared guide is CLAUDE.md)
 /.claude/settings.local.json
+/CLAUDE.local.md
+
+# Host scripts run python3 -I -B, so no caches should appear; and no venv on the host (rule 2).
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+# Windows "downloaded from the internet" markers, which WSL shows as separate files
+*:Zone.Identifier
