@@ -11,6 +11,9 @@ script so nothing has to be re-derived later.
 > **Rule for this repo:** nothing is done as a one-off command. Every probe, check,
 > build or flash is a documented script under `scripts/`, listed in the
 > [script index](#script-index). If you do something new, script it and add it here.
+> Log work, problems and abandoned approaches in [CHANGES.md](CHANGES.md).
+> AI agents start at [.agents/REPO_GUIDE.md](.agents/REPO_GUIDE.md); `AGENTS.md`,
+> `CLAUDE.md` and `GEMINI.md` link there.
 
 ## Status
 
@@ -28,6 +31,8 @@ _See the [findings log](#findings-log) at the bottom for the dated trail._
 | Flash our build | ✅ 5/5 regions hash-verified by the chip, 19 s, NVS kept |
 | **Face on screen** | ✅ **our v2.5.2 build draws the xiaozhi emoji faces**: 8/8 screenshots from the device, see [below](#getting-a-face-on-the-screen) |
 | Way back to factory | ✅ proven on the device: restore → read-back byte-identical → boots factory 2.1.0 (`scripts/29-test-restore.sh`) |
+| Version control | ✅ local git, no remote. The pre-commit hook blocks device secrets (`scripts/90-check-secrets.sh`); [CHANGES.md](CHANGES.md) is the running log |
+| AI-agent setup | ✅ 6 skills in `.agents/skills/` plus [repo guide](.agents/REPO_GUIDE.md). Claude Code, Gemini CLI and Codex each verified to load all 6 (`scripts/91-agent-skills.sh discover --claude`) |
 | On the device now | dev face-demo build (`dev-face-v2.5.2`, English UI), **parked in the bootloader** (screen dark, silent) |
 | Next | WiFi + a voice server (official xiaozhi.me, or self-hosted); see [next steps](#next-steps) |
 
@@ -146,17 +151,23 @@ snapshot without the swap.
 
 ```
 README.md            this file (index + runbook + findings)
+CHANGES.md           running log: work, problems, discarded approaches ("Do not repeat")
+AGENTS.md CLAUDE.md GEMINI.md    symlinks to .agents/REPO_GUIDE.md (instructions for AI agents)
+.agents/             REPO_GUIDE.md + skills/ (the one real copy of each agent skill)
+.claude/skills/ .gemini/skills/  per-skill symlinks into .agents/skills (scripts/91-agent-skills.sh)
+.githooks/           pre-commit secret guard (scripts/90-check-secrets.sh --install-hook)
 scripts/             every action, numbered by area (see index)
 scripts/lib/         shared bash helpers (common.sh)
 scripts/win/         PowerShell halves that run on the Windows host
 docs/                longer write-ups, one topic per file
-firmware/            upstream source checkouts (xiaozhi-esp32)
-out/                 build artifacts ready to flash
-prebuilt/            official prebuilt firmware downloads
-backups/             flash dumps read from the device (contain WiFi credentials — keep private)
-tools/               downloaded host tools (esptool for Windows, ...)
-state/               small env files written by scripts (current COM port, source ref)
-logs/                timestamped output of every script run
+firmware/            upstream source checkouts (xiaozhi-esp32)                    [not in git]
+out/                 build artifacts ready to flash                              [not in git]
+cache/               docker ccache, component downloads, test scratch            [not in git]
+prebuilt/            official prebuilt firmware downloads                        [not in git]
+backups/             flash dumps from the device: WiFi password, tokens          [NEVER in git]
+tools/               downloaded host tools (esptool for Windows, ...)            [not in git]
+state/               small env files written by scripts (COM port, source ref)   [not in git]
+logs/                timestamped output of every script run                      [not in git]
 ```
 
 Write-ups in `docs/`:
@@ -208,6 +219,7 @@ Numbering: `0x` survey/discovery · `1x` source + build · `2x` device I/O (espt
 | `scripts/39-selftest-flash-tools.sh` | 76 checks on synthetic images: 30/32 report damage correctly and never leak secrets | no |
 | `python3 -I scripts/py/png_probe.py <file>` | Decodes PNGs embedded in any file (e.g. an assets image) with the stdlib and prints their true pixel colours; used to prove the screenshot colour bug | no |
 | `scripts/90-check-secrets.sh [--tracked] [--explain] [--selftest] [--install-hook]` | **Pre-commit guard:** refuses commits containing anything under `backups/`, flash images, or the value of any NVS key the analyser redacts (WiFi password, server credentials, board UUID), taken from every dump in `backups/`. It prints file and key only, never a value. `--selftest` proves it on a synthetic dump | no |
+| `scripts/91-agent-skills.sh check\|link\|discover [--claude]\|selftest` | Keeps the AI-agent setup consistent. There is one real copy of each skill in `.agents/skills/`, with per-skill links for Claude Code and Gemini CLI, and `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` point to `.agents/REPO_GUIDE.md`. It validates frontmatter, the four sections and the script paths each skill names. `discover` asks the installed CLIs what they actually load | no |
 
 Every script has a header comment with usage (`--help` prints it), and mirrors its output into `logs/`.
 
@@ -315,6 +327,16 @@ container), `scripts/py/*.py` (standard-library Python used by the numbered scri
   (sha256 `4f1e9943…`), and it boots xiaozhi 2.1.0. The way home is proven, not just dry-run.
 * **2026-11-10 07:01** — `28-face-demo.sh` put the dev build back: 5/5 hashes verified and all
   evidence checks PASS again. Chip parked.
+* **2026-11-10 07:10–08:00** — Repo put under git (local only). Details and dead ends are in
+  [CHANGES.md](CHANGES.md).
+  - **Secret guard as the pre-commit hook.** Selftest 15/15. On its first run it caught the board
+    UUID in an evidence log, which is now redacted.
+  - **Agent setup.** Six skills plus the repo guide. All three installed CLIs load all six:
+    - Gemini CLI 0.27.3: `gemini skills list`. It reads only `.gemini/skills`, despite newer docs.
+    - Codex 0.166.0: `codex debug prompt-input`.
+    - Claude Code 2.1.321: the running session listed all six without `/reload-skills`, and the
+      headless debug log shows `project: 6`. The headless request itself failed with "Credit balance
+      is too low": the shell's `ANTHROPIC_API_KEY` takes precedence over the claude.ai login.
 * **2026-11-10 07:05** — Research dossier `docs/board-dossier.md` (subagent). I re-checked its
   load-bearing claims in the source. Findings:
   - On USB the ball should stay on overnight, online or not.

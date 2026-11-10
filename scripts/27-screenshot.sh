@@ -7,7 +7,8 @@
 #   scripts/27-screenshot.sh --count 1 --seconds 40      # no reset: wait for the next periodic one
 #   scripts/27-screenshot.sh --label wifi-config --reset run
 #
-# Needs the DEV firmware build (Kconfig XZ_DEV_SERIAL_SCREENSHOT=y, see docs/dev-patch.md):
+# Needs the DEV firmware build (Kconfig XZ_DEV_SERIAL_SCREENSHOT=y; patches/xz-dev-tools.patch,
+# docs/build.md "Local changes to the firmware"):
 # it snapshots the active LVGL screen, JPEG-encodes it and prints it base64-encoded on the
 # console between "XZSHOT BEGIN" / "XZSHOT END" markers a few seconds after boot and then
 # periodically. Stock firmware prints no such blocks and this script will report none found.
